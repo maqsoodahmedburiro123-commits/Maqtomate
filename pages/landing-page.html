@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maqtomate AI — Your 24/7 WhatsApp AI Assistant for Any Business</title>
+<meta name="description" content="AI WhatsApp assistant that replies to customers in seconds, handles FAQs, captures leads, and escalates to a human when needed. Zero per-message fees. Setup in 48 hours.">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .chat-bubble { max-width: 80%; animation: pop .3s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .pulse-dot { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+  .gradient-hero { background: linear-gradient(135deg, #064e3b 0%, #065f46 50%, #047857 100%); }
+</style>
+</head>
+<body class="bg-white text-gray-900">
+
+<!-- NAV -->
+<nav class="border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur z-50">
+  <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-lg">M</div>
+      <span class="font-bold text-xl">Maqtomate AI</span>
+    </div>
+    <div class="hidden md:flex items-center gap-7 text-sm font-medium">
+      <a href="#how" class="hover:text-emerald-600">How it works</a>
+      <a href="#pricing" class="hover:text-emerald-600">Pricing</a>
+      <a href="#faq" class="hover:text-emerald-600">FAQ</a>
+      <a href="https://wa.me/923001234567?text=Hi%20Maqtomate%2C%20I%20want%20a%20WhatsApp%20AI%20bot%20for%20my%20business" class="bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg font-semibold transition">Get Started</a>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="gradient-hero text-white">
+  <div class="max-w-6xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-12 items-center">
+    <div>
+      <div class="inline-block bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs font-semibold px-3 py-1.5 rounded-full mb-5">⚡ Replies in under 10 seconds, 24/7</div>
+      <h1 class="text-4xl md:text-6xl font-extrabold leading-tight mb-6">Your 24/7 AI<br>WhatsApp Assistant.<br><span class="text-emerald-300">Zero per-message fees.</span></h1>
+      <p class="text-lg md:text-xl text-emerald-50/90 mb-8 leading-relaxed">Most businesses lose 60% of leads to slow replies. Maqtomate AI catches every WhatsApp message in seconds — answers FAQs, books appointments, escalates to a human when it matters. You pay a flat monthly fee. No per-message charges. Ever.</p>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a href="https://wa.me/923001234567?text=Hi%20Maqtomate%2C%20I%20want%20a%20WhatsApp%20AI%20bot%20for%20my%20business" class="bg-white text-emerald-700 hover:bg-emerald-50 px-7 py-4 rounded-lg font-bold text-center transition shadow-lg">Try the Live Bot →</a>
+        <a href="#pricing" class="border border-white/30 hover:bg-white/10 px-7 py-4 rounded-lg font-semibold text-center transition">See Pricing</a>
+      </div>
+      <div class="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-emerald-100/80">
+        <span>✓ Setup in 48 hours</span>
+        <span>✓ Zero per-message fees</span>
+        <span>✓ Multi-language</span>
+        <span>✓ Cancel anytime</span>
+      </div>
+    </div>
+
+    <!-- CHAT DEMO -->
+    <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-md mx-auto w-full">
+      <div class="bg-emerald-600 text-white text-sm font-semibold px-4 py-2.5 rounded-t-xl flex items-center gap-2">
+        <div class="w-2 h-2 bg-green-300 rounded-full"></div>
+        Your Business — Online
+      </div>
+      <div class="bg-gray-50 p-4 space-y-3 h-96 overflow-hidden" id="chatDemo">
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Hi! Do you have any openings this week?</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-emerald-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Hi! Yes — we have slots Tue 4PM, Wed 6PM, and Sat 11AM. Which works for you?</div></div>
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Wed 6PM. How much?</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-emerald-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Wed 6PM booked ✓<br>Fee is Rs 1,500. May I have your name to confirm?</div></div>
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Ahmad</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-emerald-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Thanks Ahmad! See you Wed 6PM. Anything else?</div></div>
+      </div>
+      <div class="flex items-center gap-2 px-4 py-3 border-t border-gray-100 bg-white rounded-b-xl">
+        <div class="flex-1 bg-gray-100 text-gray-400 text-sm px-3 py-2 rounded-full">Type a message…</div>
+        <div class="w-9 h-9 bg-emerald-600 rounded-full flex items-center justify-center text-white text-sm">➤</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM / SOLUTION -->
+<section class="py-20 bg-gray-50">
+  <div class="max-w-6xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">The WhatsApp reply gap is killing your business</h2>
+    <p class="text-center text-gray-600 mb-14 max-w-2xl mx-auto">Customers expect a reply in minutes. You sleep, eat, and have weekends. Maqtomate AI bridges the gap without hiring staff.</p>
+    <div class="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+      <div class="bg-red-50 border border-red-200 rounded-2xl p-7">
+        <div class="text-red-600 font-bold mb-3 text-lg">✗ Without Maqtomate</div>
+        <ul class="space-y-2.5 text-sm text-gray-700">
+          <li>• Customer messages at 11 PM — seen 8 hours later</li>
+          <li>• Same 5 questions answered 40× a week</li>
+          <li>• Missed leads go to a competitor who replied first</li>
+          <li>• Per-message Meta fees eat into margin</li>
+          <li>• Hire a receptionist = Rs 25,000+/month + training</li>
+        </ul>
+      </div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-7">
+        <div class="text-emerald-600 font-bold mb-3 text-lg">✓ With Maqtomate AI</div>
+        <ul class="space-y-2.5 text-sm text-gray-700">
+          <li>• Replies in &lt;10 seconds, 24/7, in any language</li>
+          <li>• FAQs, pricing, hours answered automatically</li>
+          <li>• Every lead captured + handed to you with context</li>
+          <li>• Flat monthly fee, zero per-message costs</li>
+          <li>• Setup in 48 hours, no training needed</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROI CALCULATOR -->
+<section class="py-20">
+  <div class="max-w-3xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">How much are you leaving on the table?</h2>
+    <p class="text-center text-gray-600 mb-10">Plug in your numbers:</p>
+    <div class="bg-white border-2 border-emerald-200 rounded-2xl p-7 md:p-9">
+      <div class="grid md:grid-cols-2 gap-5 mb-6">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">WhatsApp messages you get / week</label>
+          <input id="msgs" type="number" value="80" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">% you currently miss or reply late</label>
+          <input id="miss" type="number" value="40" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Avg customer value (Rs)</label>
+          <input id="val" type="number" value="3000" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">% of replies that convert</label>
+          <input id="conv" type="number" value="25" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none">
+        </div>
+      </div>
+      <div class="border-t border-gray-200 pt-6 grid md:grid-cols-3 gap-4 text-center">
+        <div><div class="text-3xl font-extrabold text-emerald-600" id="lostLeads">—</div><div class="text-xs text-gray-500 mt-1">leads you lose / month</div></div>
+        <div><div class="text-3xl font-extrabold text-emerald-600" id="lostRev">—</div><div class="text-xs text-gray-500 mt-1">revenue you lose / month</div></div>
+        <div><div class="text-3xl font-extrabold text-emerald-600" id="roi">—</div><div class="text-xs text-gray-500 mt-1">your ROI on Maqtomate</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="py-20 bg-gray-50">
+  <div class="max-w-5xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-14">Live in 4 steps, 48 hours</h2>
+    <div class="grid md:grid-cols-4 gap-6">
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center mb-4">1</div>
+        <h3 class="font-bold mb-2">5-min form</h3>
+        <p class="text-sm text-gray-600">You fill our onboarding form: business info, FAQs, prices, working hours.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center mb-4">2</div>
+        <h3 class="font-bold mb-2">We set up Meta</h3>
+        <p class="text-sm text-gray-600">We connect your WhatsApp Business number to our backend. You sign once in Meta.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center mb-4">3</div>
+        <h3 class="font-bold mb-2">We train the AI</h3>
+        <p class="text-sm text-gray-600">We configure the AI to know your business — services, prices, voice, escalation rules.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center mb-4">4</div>
+        <h3 class="font-bold mb-2">You're live</h3>
+        <p class="text-sm text-gray-600">Bot handles customer chats. You get notified for handoffs. We monitor 24/7.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING — 3-Mode -->
+<section id="pricing" class="py-20">
+  <div class="max-w-6xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">3 modes, one flat fee</h2>
+    <p class="text-center text-gray-600 mb-3 max-w-2xl mx-auto">Pick based on who pays for the AI and Meta API. All modes include the same bot, dashboard, and onboarding.</p>
+    <p class="text-center text-sm text-gray-500 mb-12">Prices shown are launch rates. After 20 clients, rates go up by ~50%.</p>
+
+    <div class="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+
+      <!-- Mode 1 -->
+      <div class="bg-white border-2 border-emerald-200 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-full">Cheapest for you</div>
+        <div class="text-sm font-bold text-emerald-600 mb-1">MODE 1</div>
+        <h3 class="text-2xl font-extrabold mb-1">DIY BYOK</h3>
+        <p class="text-sm text-gray-600 mb-5">Client brings their own WhatsApp & Gemini keys.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 2,500</span> <span class="text-sm text-gray-500">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 1,000</span> <span class="text-sm text-gray-500">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-700 mb-7">
+          <li>✓ Full bot + admin dashboard</li>
+          <li>✓ We configure everything</li>
+          <li>✓ You pay API costs directly to Google/Meta (no markup)</li>
+          <li>✗ We don't manage your API accounts</li>
+          <li>✗ Client handles their own Meta + Gemini</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=I%20want%20Mode%201%20DIY%20BYOK" class="block w-full text-center border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 1</a>
+      </div>
+
+      <!-- Mode 2 -->
+      <div class="bg-white border-2 border-blue-300 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">Most common</div>
+        <div class="text-sm font-bold text-blue-600 mb-1">MODE 2</div>
+        <h3 class="text-2xl font-extrabold mb-1">Smart Pro</h3>
+        <p class="text-sm text-gray-600 mb-5">You own your Meta WhatsApp account — we run the AI on our shared key.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 4,500</span> <span class="text-sm text-gray-500">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 2,200</span> <span class="text-sm text-gray-500">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-700 mb-7">
+          <li>✓ Full bot + admin dashboard</li>
+          <li>✓ We handle AI config + monitoring</li>
+          <li>✓ Voice notes + image support</li>
+          <li>✓ We cover the Gemini AI cost</li>
+          <li>✗ You still manage your own Meta account</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=I%20want%20Mode%202%20Smart%20Pro" class="block w-full text-center bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 2</a>
+      </div>
+
+      <!-- Mode 3 -->
+      <div class="bg-gray-900 text-white border-2 border-purple-400 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full">Hands-off</div>
+        <div class="text-sm font-bold text-purple-400 mb-1">MODE 3</div>
+        <h3 class="text-2xl font-extrabold mb-1">VIP Managed</h3>
+        <p class="text-sm text-gray-300 mb-5">We run everything. You just answer when escalated.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 8,000</span> <span class="text-sm text-gray-400">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 4,500</span> <span class="text-sm text-gray-400">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-200 mb-7">
+          <li>✓ Full bot + admin dashboard</li>
+          <li>✓ We set up Meta, AI, everything</li>
+          <li>✓ Priority updates + custom tweaks</li>
+          <li>✗ Highest monthly fee (covers your time)</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=I%20want%20Mode%203%20VIP%20Managed" class="block w-full text-center bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 3</a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq" class="py-20 bg-gray-50">
+  <div class="max-w-3xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-12">Frequently asked</h2>
+    <div class="space-y-3">
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">How fast can I go live?<span class="text-emerald-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">48 hours from when you submit the onboarding form. Most of that is waiting for Meta to verify your WhatsApp Business account.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">What languages does the bot speak?<span class="text-emerald-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">It auto-detects and replies in whatever language the customer types in — English, Roman Urdu, Urdu, Hindi, Arabic, Spanish, and ~30 more. No config needed.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">What if the bot doesn't know the answer?<span class="text-emerald-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">It collects the customer's name and question, then connects them to you on WhatsApp with a pre-filled message. You get notified instantly.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Can it handle voice notes and images?<span class="text-emerald-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Yes. Voice notes are transcribed and understood by Gemini. Images are analyzed — perfect for "look at my X, what do you recommend?" queries.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Is my customer data safe?<span class="text-emerald-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">All WhatsApp messages are end-to-end encrypted by Meta. Our backend only stores what's needed to reply. Logs auto-delete after 30 days.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Do I need to know anything technical?<span class="text-emerald-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">No. We handle the entire setup. You just fill the form, sign into Meta once to verify, and you're done. Ongoing edits to FAQs/prices are done in a simple form.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="py-20 gradient-hero text-white">
+  <div class="max-w-3xl mx-auto px-4 text-center">
+    <h2 class="text-3xl md:text-5xl font-extrabold mb-5">Stop losing leads to slow replies.</h2>
+    <p class="text-lg md:text-xl text-emerald-50/90 mb-8">Most of our clients recover 20–40% of "lost" leads in the first month. Your first 5 clients get launch pricing — locked in for life.</p>
+    <a href="https://wa.me/923001234567?text=Hi%20Maqtomate%2C%20I%20want%20to%20start%20with%20a%20WhatsApp%20AI%20bot" class="inline-block bg-white text-emerald-700 hover:bg-emerald-50 px-8 py-4 rounded-lg font-bold text-lg transition shadow-lg">Message Us on WhatsApp →</a>
+    <p class="mt-5 text-sm text-emerald-100/80">Reply within 1 hour during business hours · No commitment to chat</p>
+  </div>
+</section>
+
+<footer class="bg-gray-950 text-gray-400 py-8 text-center text-sm">
+  <p>© 2026 Maqtomate AI · Built for businesses that reply in seconds.</p>
+</footer>
+
+<script>
+  // ROI calculator
+  function calc() {
+    const msgs = parseFloat(document.getElementById('msgs').value) || 0;
+    const miss = parseFloat(document.getElementById('miss').value) || 0;
+    const val = parseFloat(document.getElementById('val').value) || 0;
+    const conv = parseFloat(document.getElementById('conv').value) || 0;
+    const lostLeads = (msgs * 4 * miss / 100);
+    const lostRev = lostLeads * val * conv / 100;
+    const maqtomate = 2200;
+    const roi = Math.max(0, Math.round((lostRev - maqtomate) / maqtomate * 100));
+    document.getElementById('lostLeads').textContent = Math.round(lostLeads);
+    document.getElementById('lostRev').textContent = 'Rs ' + Math.round(lostRev).toLocaleString();
+    document.getElementById('roi').textContent = roi + '%';
+  }
+  ['msgs','miss','val','conv'].forEach(id => document.getElementById(id).addEventListener('input', calc));
+  calc();
+</script>
+</body>
+</html>

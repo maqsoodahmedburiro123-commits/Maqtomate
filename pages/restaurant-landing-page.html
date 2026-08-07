@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurants — Maqtomate AI | WhatsApp Ordering & Reservations</title>
+<meta name="description" content="AI WhatsApp assistant for restaurants. Take orders, manage reservations, share menu. Built for the food industry.">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .chat-bubble { max-width: 80%; animation: pop .3s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .gradient-hero { background: linear-gradient(135deg, #7f1d1d 0%, #b91c1c 50%, #dc2626 100%); }
+</style>
+</head>
+<body class="bg-white text-gray-900">
+
+<nav class="border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur z-50">
+  <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center text-white font-bold text-lg">M</div>
+      <span class="font-bold text-xl">Maqtomate AI</span>
+      <span class="text-xs bg-red-50 text-red-700 px-2 py-0.5 rounded-full font-semibold">for Restaurants</span>
+    </div>
+    <div class="hidden md:flex items-center gap-7 text-sm font-medium">
+      <a href="#how" class="hover:text-red-600">How it works</a>
+      <a href="#pricing" class="hover:text-red-600">Pricing</a>
+      <a href="#faq" class="hover:text-red-600">FAQ</a>
+      <a href="https://wa.me/923001234567?text=Hi%2C%20I%20run%20a%20restaurant%20and%20want%20a%20WhatsApp%20AI%20bot" class="bg-red-600 hover:bg-red-500 text-white px-5 py-2.5 rounded-lg font-semibold transition">Book a Demo</a>
+    </div>
+  </div>
+</nav>
+
+<section class="gradient-hero text-white">
+  <div class="max-w-6xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-12 items-center">
+    <div>
+      <div class="inline-block bg-red-500/20 border border-red-400/30 text-red-100 text-xs font-semibold px-3 py-1.5 rounded-full mb-5">🍽️ Built for restaurants, cafés & cloud kitchens</div>
+      <h1 class="text-4xl md:text-6xl font-extrabold leading-tight mb-6">Hungry customers message.<br>You cook.<br>We handle the chat.</h1>
+      <p class="text-lg md:text-xl text-red-50/90 mb-8 leading-relaxed">Maqtomate AI takes orders, confirms reservations, answers menu questions (including allergens and spice levels), and tells customers your hours and location — all in seconds, all in their language. Your staff focuses on the food.</p>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a href="https://wa.me/923001234567?text=Hi%2C%20I%20run%20a%20restaurant%20and%20want%20a%20WhatsApp%20AI%20bot" class="bg-white text-red-700 hover:bg-red-50 px-7 py-4 rounded-lg font-bold text-center transition shadow-lg">Try the Live Bot →</a>
+        <a href="#pricing" class="border border-white/30 hover:bg-white/10 px-7 py-4 rounded-lg font-semibold text-center transition">See Pricing</a>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-md mx-auto w-full">
+      <div class="bg-red-600 text-white text-sm font-semibold px-4 py-2.5 rounded-t-xl flex items-center gap-2">
+        <div class="w-2 h-2 bg-green-300 rounded-full"></div>
+        Spice Garden — Online
+      </div>
+      <div class="bg-gray-50 p-4 space-y-3 h-96 overflow-hidden">
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Hi! Do you deliver to Gulshan?</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-red-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Hi! Haan, Gulshan tak deliver karte hain. Min order Rs 800. Delivery 30-45 min. Aap kya order karna chahenge?</div></div>
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">2 butter chicken, 1 naan, 1 raita</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-red-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Got it!<br>• Butter Chicken × 2 (Rs 1,400)<br>• Naan × 1 (Rs 80)<br>• Raita × 1 (Rs 120)<br>Total: Rs 1,600<br>Address confirm karein?</div></div>
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">House 12, Street 5, Gulshan. Cash on delivery. 40 min please</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-red-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">✓ Order placed! 40 min mein aapke ghar pe. COD. Shukriya!</div></div>
+      </div>
+      <div class="flex items-center gap-2 px-4 py-3 border-t border-gray-100 bg-white rounded-b-xl">
+        <div class="flex-1 bg-gray-100 text-gray-400 text-sm px-3 py-2 rounded-full">Type a message…</div>
+        <div class="w-9 h-9 bg-red-600 rounded-full flex items-center justify-center text-white text-sm">➤</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-20 bg-gray-50">
+  <div class="max-w-6xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">Orders don't wait for your hostess to finish seating a table.</h2>
+    <p class="text-center text-gray-600 mb-14 max-w-2xl mx-auto">When a customer DMs "what's on the menu?" and gets a reply 2 hours later, they've already ordered from somewhere else.</p>
+    <div class="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+      <div class="bg-red-50 border border-red-200 rounded-2xl p-7">
+        <div class="text-red-600 font-bold mb-3 text-lg">✗ Without Maqtomate</div>
+        <ul class="space-y-2.5 text-sm text-gray-700">
+          <li>• Customer asks "is the biryani vegetarian?" at 10 PM, gets reply at noon</li>
+          <li>• Staff juggling tables and phones misses 40% of WhatsApp orders</li>
+          <li>• Reservation requests get lost in the chat scroll</li>
+          <li>• Repeated menu questions drain server time</li>
+        </ul>
+      </div>
+      <div class="bg-red-50 border border-red-300 rounded-2xl p-7">
+        <div class="text-red-700 font-bold mb-3 text-lg">✓ With Maqtomate AI</div>
+        <ul class="space-y-2.5 text-sm text-gray-700">
+          <li>• Every message answered in &lt;10 seconds, 24/7</li>
+          <li>• Menu, prices, allergens, spice levels handled by bot</li>
+          <li>• Orders taken with item + qty + address + payment method</li>
+          <li>• Reservations confirmed with date + time + party size</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-20">
+  <div class="max-w-3xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-10">What are missed orders costing you?</h2>
+    <div class="bg-white border-2 border-red-200 rounded-2xl p-7 md:p-9">
+      <div class="grid md:grid-cols-2 gap-5 mb-6">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">WhatsApp msgs / week</label>
+          <input id="msgs" type="number" value="100" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">% missed or late</label>
+          <input id="miss" type="number" value="40" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Avg order value (Rs)</label>
+          <input id="val" type="number" value="1500" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Conversion %</label>
+          <input id="conv" type="number" value="40" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-red-500 focus:ring-2 focus:ring-red-200 outline-none">
+        </div>
+      </div>
+      <div class="border-t border-gray-200 pt-6 grid md:grid-cols-3 gap-4 text-center">
+        <div><div class="text-3xl font-extrabold text-red-600" id="lostLeads">—</div><div class="text-xs text-gray-500 mt-1">orders lost / month</div></div>
+        <div><div class="text-3xl font-extrabold text-red-600" id="lostRev">—</div><div class="text-xs text-gray-500 mt-1">revenue lost / month</div></div>
+        <div><div class="text-3xl font-extrabold text-red-600" id="roi">—</div><div class="text-xs text-gray-500 mt-1">ROI on Maqtomate</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="py-20 bg-gray-50">
+  <div class="max-w-5xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-14">Live in 48 hours</h2>
+    <div class="grid md:grid-cols-4 gap-6">
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-red-600 text-white font-bold flex items-center justify-center mb-4">1</div>
+        <h3 class="font-bold mb-2">Menu + hours</h3>
+        <p class="text-sm text-gray-600">Send us your menu (text, photo, or PDF). Tell us hours, delivery area, payment options.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-red-600 text-white font-bold flex items-center justify-center mb-4">2</div>
+        <h3 class="font-bold mb-2">Meta setup</h3>
+        <p class="text-sm text-gray-600">We connect your WhatsApp Business number. 24-48 hr Meta verification.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-red-600 text-white font-bold flex items-center justify-center mb-4">3</div>
+        <h3 class="font-bold mb-2">Bot training</h3>
+        <p class="text-sm text-gray-600">Bot learns your menu, allergens, hours, delivery zones, ordering flow.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-red-600 text-white font-bold flex items-center justify-center mb-4">4</div>
+        <h3 class="font-bold mb-2">You're open for orders</h3>
+        <p class="text-sm text-gray-600">Bot takes orders and reservations. You cook. Kitchen gets the details in WhatsApp.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="py-20">
+  <div class="max-w-6xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">3 modes, one flat fee</h2>
+    <p class="text-center text-gray-600 mb-3 max-w-2xl mx-auto">Pick based on who pays for the AI and Meta API.</p>
+    <p class="text-center text-sm text-gray-500 mb-12">Launch pricing for the first 20 restaurants.</p>
+
+    <div class="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+      <div class="bg-white border-2 border-emerald-200 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-full">Cheapest</div>
+        <div class="text-sm font-bold text-emerald-600 mb-1">MODE 1</div>
+        <h3 class="text-2xl font-extrabold mb-1">DIY BYOK</h3>
+        <p class="text-sm text-gray-600 mb-5">You bring your own WhatsApp & Gemini keys.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 2,500</span> <span class="text-sm text-gray-500">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 1,000</span> <span class="text-sm text-gray-500">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-700 mb-7">
+          <li>✓ Full bot + dashboard</li>
+          <li>✓ We configure everything</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=Restaurant%20%E2%80%94%20Mode%201" class="block w-full text-center border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 1</a>
+      </div>
+      <div class="bg-white border-2 border-red-300 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full">Most popular</div>
+        <div class="text-sm font-bold text-red-600 mb-1">MODE 2</div>
+        <h3 class="text-2xl font-extrabold mb-1">Smart Pro</h3>
+        <p class="text-sm text-gray-600 mb-5">You own WhatsApp. We run the AI on our shared key.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 4,500</span> <span class="text-sm text-gray-500">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 2,200</span> <span class="text-sm text-gray-500">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-700 mb-7">
+          <li>✓ Full bot + dashboard</li>
+          <li>✓ Voice notes + image support (customers send food pics)</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=Restaurant%20%E2%80%94%20Mode%202" class="block w-full text-center bg-red-600 hover:bg-red-500 text-white px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 2</a>
+      </div>
+      <div class="bg-gray-900 text-white border-2 border-purple-400 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full">Hands-off</div>
+        <div class="text-sm font-bold text-purple-400 mb-1">MODE 3</div>
+        <h3 class="text-2xl font-extrabold mb-1">VIP Managed</h3>
+        <p class="text-sm text-gray-300 mb-5">We run everything. You just cook.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 8,000</span> <span class="text-sm text-gray-400">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 4,500</span> <span class="text-sm text-gray-400">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-200 mb-7">
+          <li>✓ Full bot + dashboard</li>
+          <li>✓ Custom ordering flow + kitchen integration</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=Restaurant%20%E2%80%94%20Mode%203" class="block w-full text-center bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 3</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="py-20 bg-gray-50">
+  <div class="max-w-3xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-12">Restaurant FAQ</h2>
+    <div class="space-y-3">
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Can the bot take actual orders with item + qty + address?<span class="text-red-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Yes — for casual/takeaway/delivery orders the bot captures item, quantity, address, payment method, and timing. You (or your kitchen) get a clean order summary in WhatsApp. For complex orders or special requests, the bot escalates.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">What about allergens, spice levels, dietary restrictions?<span class="text-red-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">We train the bot on your menu's allergen info, spice levels, and vegetarian/halal/etc. flags. Customers can ask "is the karahi gluten-free?" and get a real answer from your menu data.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Can customers reserve a table?<span class="text-red-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Yes — bot asks for date, time, party size, and any special requests (birthday, window seat, etc.). You get a reservation request in WhatsApp with full context. You confirm or counter-propose.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Can I update the daily specials / 86'd items?<span class="text-red-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Yes — you send the bot a quick message like "86 the lamb tonight" or "today's special: chicken tikka" and it updates immediately. No dashboard required for daily changes.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Does it integrate with POS or delivery platforms?<span class="text-red-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">For Mode 3, yes — we can build custom integrations with Foodpanda, Careem, or your POS (extra fee). For Mode 1/2, orders come to your WhatsApp and you enter them in your system manually (most restaurants already do this anyway).</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="py-20 gradient-hero text-white">
+  <div class="max-w-3xl mx-auto px-4 text-center">
+    <h2 class="text-3xl md:text-5xl font-extrabold mb-5">Your kitchen shouldn't lose orders to a slow reply.</h2>
+    <p class="text-lg md:text-xl text-red-50/90 mb-8">The first 20 restaurants get launch pricing — locked in for the life of your account.</p>
+    <a href="https://wa.me/923001234567?text=Hi%2C%20I%20run%20a%20restaurant%20and%20want%20a%20WhatsApp%20AI%20bot" class="inline-block bg-white text-red-700 hover:bg-red-50 px-8 py-4 rounded-lg font-bold text-lg transition shadow-lg">Book Your Demo →</a>
+  </div>
+</section>
+
+<footer class="bg-gray-950 text-gray-400 py-8 text-center text-sm">
+  <p>© 2026 Maqtomate AI · Built for restaurants that fill their tables.</p>
+</footer>
+
+<script>
+  function calc() {
+    const msgs = parseFloat(document.getElementById('msgs').value) || 0;
+    const miss = parseFloat(document.getElementById('miss').value) || 0;
+    const val = parseFloat(document.getElementById('val').value) || 0;
+    const conv = parseFloat(document.getElementById('conv').value) || 0;
+    const lostLeads = (msgs * 4 * miss / 100);
+    const lostRev = lostLeads * val * conv / 100;
+    const maqtomate = 2200;
+    const roi = Math.max(0, Math.round((lostRev - maqtomate) / maqtomate * 100));
+    document.getElementById('lostLeads').textContent = Math.round(lostLeads);
+    document.getElementById('lostRev').textContent = 'Rs ' + Math.round(lostRev).toLocaleString();
+    document.getElementById('roi').textContent = roi + '%';
+  }
+  ['msgs','miss','val','conv'].forEach(id => document.getElementById(id).addEventListener('input', calc));
+  calc();
+</script>
+</body>
+</html>

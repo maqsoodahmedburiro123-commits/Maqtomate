@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Salons & Spas — Maqtomate AI | WhatsApp Booking Assistant</title>
+<meta name="description" content="AI WhatsApp assistant for salons and spas. Book appointments, share service menus, handle cancellations. Built for the beauty industry.">
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Inter', sans-serif; }
+  .display { font-family: 'Playfair Display', serif; }
+  .chat-bubble { max-width: 80%; animation: pop .3s ease-out; }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .gradient-hero { background: linear-gradient(135deg, #831843 0%, #be185d 50%, #db2777 100%); }
+</style>
+</head>
+<body class="bg-white text-gray-900">
+
+<nav class="border-b border-gray-100 sticky top-0 bg-white/95 backdrop-blur z-50">
+  <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 rounded-lg bg-pink-600 flex items-center justify-center text-white font-bold text-lg">M</div>
+      <span class="font-bold text-xl">Maqtomate AI</span>
+      <span class="text-xs bg-pink-50 text-pink-700 px-2 py-0.5 rounded-full font-semibold">for Salons</span>
+    </div>
+    <div class="hidden md:flex items-center gap-7 text-sm font-medium">
+      <a href="#how" class="hover:text-pink-600">How it works</a>
+      <a href="#pricing" class="hover:text-pink-600">Pricing</a>
+      <a href="#faq" class="hover:text-pink-600">FAQ</a>
+      <a href="https://wa.me/923001234567?text=Hi%2C%20I%20run%20a%20salon%20and%20want%20a%20WhatsApp%20AI%20bot" class="bg-pink-600 hover:bg-pink-500 text-white px-5 py-2.5 rounded-lg font-semibold transition">Book a Demo</a>
+    </div>
+  </div>
+</nav>
+
+<section class="gradient-hero text-white">
+  <div class="max-w-6xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-12 items-center">
+    <div>
+      <div class="inline-block bg-pink-500/20 border border-pink-400/30 text-pink-100 text-xs font-semibold px-3 py-1.5 rounded-full mb-5">💅 Built for salons, spas & beauty studios</div>
+      <h1 class="display text-4xl md:text-6xl font-bold leading-tight mb-6">Your chair shouldn't sit empty because nobody answered.</h1>
+      <p class="text-lg md:text-xl text-pink-50/90 mb-8 leading-relaxed">Clients DM at midnight asking about your balayage price. They book in 3 taps — or they go to the salon that replied first. Maqtomate AI answers in seconds, 24/7, and fills your calendar with people who actually show up.</p>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <a href="https://wa.me/923001234567?text=Hi%2C%20I%20run%20a%20salon%20and%20want%20a%20WhatsApp%20AI%20bot" class="bg-white text-pink-700 hover:bg-pink-50 px-7 py-4 rounded-lg font-bold text-center transition shadow-lg">Try the Live Bot →</a>
+        <a href="#pricing" class="border border-white/30 hover:bg-white/10 px-7 py-4 rounded-lg font-semibold text-center transition">See Pricing</a>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-md mx-auto w-full">
+      <div class="bg-pink-600 text-white text-sm font-semibold px-4 py-2.5 rounded-t-xl flex items-center gap-2">
+        <div class="w-2 h-2 bg-green-300 rounded-full"></div>
+        Glow Studio — Online
+      </div>
+      <div class="bg-gray-50 p-4 space-y-3 h-96 overflow-hidden">
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Hi! Do you have any slot for hair color this Saturday?</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-pink-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Hi gorgeous! 💕 Saturday ke liye 11 AM, 2 PM, aur 4 PM available hain. Kaunsa service chahiye — full color, highlights, ya balayage?</div></div>
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Balayage. Kitna lagega?</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-pink-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Balayage ka charge Rs 8,500 hai (3-4 hours). Is mein wash + blow dry included hai. 2 PM slot book karein?</div></div>
+        <div class="flex"><div class="chat-bubble bg-white border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-gray-800">Yes please! Maira, 03221234567</div></div>
+        <div class="flex justify-end"><div class="chat-bubble bg-pink-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">Done Maira! ✨ Saturday 2 PM book ho gaya. Reminder bhej dunga 1 din pehle. See you!</div></div>
+      </div>
+      <div class="flex items-center gap-2 px-4 py-3 border-t border-gray-100 bg-white rounded-b-xl">
+        <div class="flex-1 bg-gray-100 text-gray-400 text-sm px-3 py-2 rounded-full">Type a message…</div>
+        <div class="w-9 h-9 bg-pink-600 rounded-full flex items-center justify-center text-white text-sm">➤</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-20 bg-gray-50">
+  <div class="max-w-6xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">Empty chairs are expensive.</h2>
+    <p class="text-center text-gray-600 mb-14 max-w-2xl mx-auto">The average salon loses 8-12 bookings a month to slow WhatsApp replies. Multiply that by your average ticket.</p>
+    <div class="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+      <div class="bg-red-50 border border-red-200 rounded-2xl p-7">
+        <div class="text-red-600 font-bold mb-3 text-lg">✗ Without Maqtomate</div>
+        <ul class="space-y-2.5 text-sm text-gray-700">
+          <li>• Client DMs at 10 PM, you see it next morning</li>
+          <li>• "What's your haircut price?" — asked 30 times a week</li>
+          <li>• Bookings happen over 6 back-and-forth messages</li>
+          <li>• No-shows because nobody sent a reminder</li>
+        </ul>
+      </div>
+      <div class="bg-pink-50 border border-pink-200 rounded-2xl p-7">
+        <div class="text-pink-600 font-bold mb-3 text-lg">✓ With Maqtomate AI</div>
+        <ul class="space-y-2.5 text-sm text-gray-700">
+          <li>• Every WhatsApp message answered in &lt;10 seconds, 24/7</li>
+          <li>• Service menu, prices, hours handled automatically</li>
+          <li>• Bookings confirmed in 1 message (name + slot + price)</li>
+          <li>• You get notified for custom requests, no need to watch the phone</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="py-20">
+  <div class="max-w-3xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-10">How much are empty chairs costing you?</h2>
+    <div class="bg-white border-2 border-pink-200 rounded-2xl p-7 md:p-9">
+      <div class="grid md:grid-cols-2 gap-5 mb-6">
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">WhatsApp msgs / week</label>
+          <input id="msgs" type="number" value="60" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">% missed or late</label>
+          <input id="miss" type="number" value="40" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Avg service value (Rs)</label>
+          <input id="val" type="number" value="4000" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-gray-700 mb-2">Conversion %</label>
+          <input id="conv" type="number" value="30" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-lg font-semibold focus:border-pink-500 focus:ring-2 focus:ring-pink-200 outline-none">
+        </div>
+      </div>
+      <div class="border-t border-gray-200 pt-6 grid md:grid-cols-3 gap-4 text-center">
+        <div><div class="text-3xl font-extrabold text-pink-600" id="lostLeads">—</div><div class="text-xs text-gray-500 mt-1">clients lost / month</div></div>
+        <div><div class="text-3xl font-extrabold text-pink-600" id="lostRev">—</div><div class="text-xs text-gray-500 mt-1">revenue lost / month</div></div>
+        <div><div class="text-3xl font-extrabold text-pink-600" id="roi">—</div><div class="text-xs text-gray-500 mt-1">ROI on Maqtomate</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="py-20 bg-gray-50">
+  <div class="max-w-5xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-14">Live in 48 hours</h2>
+    <div class="grid md:grid-cols-4 gap-6">
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center mb-4">1</div>
+        <h3 class="font-bold mb-2">Service menu</h3>
+        <p class="text-sm text-gray-600">You share your service list + prices (or we copy from your Instagram bio).</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center mb-4">2</div>
+        <h3 class="font-bold mb-2">Meta setup</h3>
+        <p class="text-sm text-gray-600">We connect your WhatsApp Business number. You sign once in Meta.</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center mb-4">3</div>
+        <h3 class="font-bold mb-2">Bot training</h3>
+        <p class="text-sm text-gray-600">Bot learns your services, prices, hours, and tone (formal/friendly/spicy).</p>
+      </div>
+      <div class="bg-white rounded-2xl p-6 border border-gray-200">
+        <div class="w-10 h-10 rounded-full bg-pink-600 text-white font-bold flex items-center justify-center mb-4">4</div>
+        <h3 class="font-bold mb-2">You're booked</h3>
+        <p class="text-sm text-gray-600">Confirmations, reminders, and reschedules — all automatic.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" class="py-20">
+  <div class="max-w-6xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-3">3 modes, one flat fee</h2>
+    <p class="text-center text-gray-600 mb-3 max-w-2xl mx-auto">Pick based on who pays for the AI and Meta API.</p>
+    <p class="text-center text-sm text-gray-500 mb-12">Launch pricing for the first 20 salons.</p>
+
+    <div class="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+      <div class="bg-white border-2 border-emerald-200 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-full">Cheapest</div>
+        <div class="text-sm font-bold text-emerald-600 mb-1">MODE 1</div>
+        <h3 class="text-2xl font-extrabold mb-1">DIY BYOK</h3>
+        <p class="text-sm text-gray-600 mb-5">You bring your own WhatsApp & Gemini keys.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 2,500</span> <span class="text-sm text-gray-500">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 1,000</span> <span class="text-sm text-gray-500">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-700 mb-7">
+          <li>✓ Full bot + dashboard</li>
+          <li>✓ We configure everything</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=Salon%20%E2%80%94%20Mode%201" class="block w-full text-center border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 1</a>
+      </div>
+      <div class="bg-white border-2 border-pink-300 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-pink-600 text-white text-xs font-bold px-3 py-1 rounded-full">Most popular</div>
+        <div class="text-sm font-bold text-pink-600 mb-1">MODE 2</div>
+        <h3 class="text-2xl font-extrabold mb-1">Smart Pro</h3>
+        <p class="text-sm text-gray-600 mb-5">You own WhatsApp. We run the AI on our shared key.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 4,500</span> <span class="text-sm text-gray-500">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 2,200</span> <span class="text-sm text-gray-500">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-700 mb-7">
+          <li>✓ Full bot + dashboard</li>
+          <li>✓ Voice notes + image support (clients send hair pics!)</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=Salon%20%E2%80%94%20Mode%202" class="block w-full text-center bg-pink-600 hover:bg-pink-500 text-white px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 2</a>
+      </div>
+      <div class="bg-gray-900 text-white border-2 border-purple-400 rounded-2xl p-7 relative">
+        <div class="absolute -top-3 left-7 bg-purple-600 text-white text-xs font-bold px-3 py-1 rounded-full">Hands-off</div>
+        <div class="text-sm font-bold text-purple-400 mb-1">MODE 3</div>
+        <h3 class="text-2xl font-extrabold mb-1">VIP Managed</h3>
+        <p class="text-sm text-gray-300 mb-5">We run everything. You just do hair.</p>
+        <div class="mb-1"><span class="text-3xl font-extrabold">Rs 8,000</span> <span class="text-sm text-gray-400">setup</span></div>
+        <div class="mb-5"><span class="text-3xl font-extrabold">Rs 4,500</span> <span class="text-sm text-gray-400">/ month</span></div>
+        <ul class="text-sm space-y-2 text-gray-200 mb-7">
+          <li>✓ Full bot + dashboard</li>
+          <li>✓ We set up Meta + AI, customize your voice</li>
+        </ul>
+        <a href="https://wa.me/923001234567?text=Salon%20%E2%80%94%20Mode%203" class="block w-full text-center bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg font-semibold transition">Choose Mode 3</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" class="py-20 bg-gray-50">
+  <div class="max-w-3xl mx-auto px-4">
+    <h2 class="text-3xl md:text-4xl font-extrabold text-center mb-12">Salon FAQ</h2>
+    <div class="space-y-3">
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Can the bot show clients my work via images?<span class="text-pink-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Yes — clients can send a reference photo of a hairstyle they want, and the bot will respond. You can also have the bot send your portfolio when clients ask "show me your work."</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">What about last-minute cancellations?<span class="text-pink-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Bot handles reschedules and cancellations automatically. You only get pinged for clients who want to dispute your cancellation policy.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Can it match my salon's vibe (formal, friendly, sassy)?<span class="text-pink-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">Yes — tell us your tone in the onboarding form, and we calibrate the AI's voice. Some salons want professional, some want playful with emojis. Your call.</p>
+      </details>
+      <details class="bg-white border border-gray-200 rounded-xl p-5 group">
+        <summary class="font-semibold cursor-pointer flex justify-between items-center">Will it work with my booking software?<span class="text-pink-600 group-open:rotate-45 transition-transform text-xl">+</span></summary>
+        <p class="text-sm text-gray-600 mt-3">For Mode 3 we can build a custom integration (extra fee). Otherwise the bot just sends confirmed bookings to your WhatsApp — you add them to your calendar manually or we set up a Google Calendar sync.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="py-20 gradient-hero text-white">
+  <div class="max-w-3xl mx-auto px-4 text-center">
+    <h2 class="display text-3xl md:text-5xl font-bold mb-5">Every empty chair is a client who went to your competitor.</h2>
+    <p class="text-lg md:text-xl text-pink-50/90 mb-8">The first 20 salons get launch pricing — locked in for the life of your account.</p>
+    <a href="https://wa.me/923001234567?text=Hi%2C%20I%20run%20a%20salon%20and%20want%20a%20WhatsApp%20AI%20bot" class="inline-block bg-white text-pink-700 hover:bg-pink-50 px-8 py-4 rounded-lg font-bold text-lg transition shadow-lg">Book Your Demo →</a>
+  </div>
+</section>
+
+<footer class="bg-gray-950 text-gray-400 py-8 text-center text-sm">
+  <p>© 2026 Maqtomate AI · Built for salons that fill their chairs.</p>
+</footer>
+
+<script>
+  function calc() {
+    const msgs = parseFloat(document.getElementById('msgs').value) || 0;
+    const miss = parseFloat(document.getElementById('miss').value) || 0;
+    const val = parseFloat(document.getElementById('val').value) || 0;
+    const conv = parseFloat(document.getElementById('conv').value) || 0;
+    const lostLeads = (msgs * 4 * miss / 100);
+    const lostRev = lostLeads * val * conv / 100;
+    const maqtomate = 2200;
+    const roi = Math.max(0, Math.round((lostRev - maqtomate) / maqtomate * 100));
+    document.getElementById('lostLeads').textContent = Math.round(lostLeads);
+    document.getElementById('lostRev').textContent = 'Rs ' + Math.round(lostRev).toLocaleString();
+    document.getElementById('roi').textContent = roi + '%';
+  }
+  ['msgs','miss','val','conv'].forEach(id => document.getElementById(id).addEventListener('input', calc));
+  calc();
+</script>
+</body>
+</html>

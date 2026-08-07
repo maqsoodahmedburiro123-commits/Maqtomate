@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Maqtomate AI — Client Onboarding Form</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; }
+  .field-help { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; }
+  .step { display: none; }
+  .step.active { display: block; }
+  .step-dot { width: 2.5rem; height: 2.5rem; }
+  .step-dot.active { background: #2563eb; color: white; }
+  .step-dot.done { background: #16a34a; color: white; }
+  .step-dot.pending { background: #e2e8f0; color: #64748b; }
+</style>
+</head>
+<body class="min-h-screen py-8 px-4">
+<div class="max-w-3xl mx-auto">
+
+  <div class="text-center mb-8">
+    <div class="inline-flex items-center gap-2 mb-2">
+      <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xl">M</div>
+      <span class="font-bold text-2xl">Maqtomate AI</span>
+    </div>
+    <h1 class="text-3xl font-extrabold mt-3">Client Onboarding</h1>
+    <p class="text-gray-600 mt-1">Takes ~5 minutes. Your AI goes live in 48 hours after we receive this.</p>
+  </div>
+
+  <!-- STEP INDICATOR -->
+  <div class="flex items-center justify-center gap-2 mb-8">
+    <div id="dot-1" class="step-dot rounded-full flex items-center justify-center font-bold step-dot active">1</div>
+    <div class="h-1 w-8 bg-gray-200 rounded" id="bar-1"></div>
+    <div id="dot-2" class="step-dot rounded-full flex items-center justify-center font-bold step-dot pending">2</div>
+    <div class="h-1 w-8 bg-gray-200 rounded" id="bar-2"></div>
+    <div id="dot-3" class="step-dot rounded-full flex items-center justify-center font-bold step-dot pending">3</div>
+    <div class="h-1 w-8 bg-gray-200 rounded" id="bar-3"></div>
+    <div id="dot-4" class="step-dot rounded-full flex items-center justify-center font-bold step-dot pending">4</div>
+  </div>
+
+  <form id="onboardForm" class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 md:p-8 space-y-6">
+
+    <!-- STEP 1: Business basics -->
+    <div class="step active" data-step="1">
+      <h2 class="text-xl font-bold mb-1">Business basics</h2>
+      <p class="text-sm text-gray-500 mb-5">Tell us about the business.</p>
+
+      <div class="grid md:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold mb-1">Business name *</label>
+          <input name="business_name" required placeholder="SmileCare Dental Clinic" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Industry / niche *</label>
+          <select name="niche" id="nicheSelect" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+            <option value="">-- Select --</option>
+            <option value="dental">Dental clinic</option>
+            <option value="salon">Salon / spa / beauty</option>
+            <option value="real_estate">Real estate</option>
+            <option value="restaurant">Restaurant / café / cloud kitchen</option>
+            <option value="retail">Retail shop / boutique</option>
+            <option value="education">Education / coaching / tuition</option>
+            <option value="ecommerce">E-commerce / online store</option>
+            <option value="medical">Medical clinic / specialist</option>
+            <option value="fitness">Gym / fitness / yoga</option>
+            <option value="automotive">Auto workshop / car dealer</option>
+            <option value="legal">Law firm / legal</option>
+            <option value="consulting">Consulting / agency / freelancer</option>
+            <option value="general">Other / general</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Country *</label>
+          <select name="country" id="countrySelect" required class="w-full border border-gray-300 rounded-lg px-3 py-2">
+            <option value="PK" data-currency="Rs" data-symbol="Rs">Pakistan (Rs)</option>
+            <option value="IN" data-currency="₹" data-symbol="₹">India (₹)</option>
+            <option value="BD" data-currency="৳" data-symbol="৳">Bangladesh (৳)</option>
+            <option value="AE" data-currency="AED" data-symbol="AED">UAE (AED)</option>
+            <option value="SA" data-currency="SAR" data-symbol="SAR">Saudi Arabia (SAR)</option>
+            <option value="US" data-currency="$" data-symbol="$">United States ($)</option>
+            <option value="UK" data-currency="£" data-symbol="£">United Kingdom (£)</option>
+            <option value="CA" data-currency="CAD" data-symbol="CAD">Canada (CAD)</option>
+            <option value="AU" data-currency="AUD" data-symbol="AUD">Australia (AUD)</option>
+            <option value="OTHER" data-currency="$" data-symbol="$">Other</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">Currency</label>
+          <input name="currency" id="currencyInput" value="Rs" class="w-full border border-gray-300 rounded-lg px-3 py-2 bg-gray-50">
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Location / city</label>
+        <input name="location" placeholder="Auto Bhan Road, Hyderabad" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">Used in AI replies when customers ask "where are you located?"</p>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Working hours</label>
+        <input name="working_hours" placeholder="4PM - 9PM, Mon-Sat" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Owner WhatsApp number (for human handoff) *</label>
+        <input name="contact_number" required placeholder="923001234567" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">Format: country code + number, no + or spaces. Bot escalates to this number when needed.</p>
+      </div>
+    </div>
+
+    <!-- STEP 2: Services + pricing -->
+    <div class="step" data-step="2">
+      <h2 class="text-xl font-bold mb-1">Services &amp; pricing</h2>
+      <p class="text-sm text-gray-500 mb-5">What do you offer? Bot will quote these when customers ask.</p>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">Services / products</label>
+        <textarea name="services" id="servicesInput" rows="3" placeholder="Dental Checkup, Teeth Cleaning, Root Canal, Tooth Extraction, Braces" class="w-full border border-gray-300 rounded-lg px-3 py-2"></textarea>
+        <p class="field-help">Comma-separated. We'll fill in common ones for your niche below.</p>
+        <button type="button" onclick="loadNicheDefaults()" class="mt-2 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded font-semibold">⚡ Load defaults for selected niche</button>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Pricing</label>
+        <textarea name="pricing" id="pricingInput" rows="4" placeholder="Checkup: Rs 500&#10;Cleaning: Rs 1,500&#10;Root Canal: Rs 5,000" class="w-full border border-gray-300 rounded-lg px-3 py-2 font-mono text-sm"></textarea>
+        <p class="field-help">One per line, format: <code>Service: Price</code>. Bot quotes these exactly.</p>
+        <button type="button" onclick="loadPricingDefaults()" class="mt-2 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded font-semibold">⚡ Load sample pricing for selected niche</button>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Top 5-10 FAQs (one per line, optional)</label>
+        <textarea name="faqs" id="faqsInput" rows="6" placeholder="What are your timings?&#10;Do you take walk-ins?&#10;Is teeth cleaning painful?" class="w-full border border-gray-300 rounded-lg px-3 py-2"></textarea>
+        <p class="field-help">These are the questions your customers ask most. Bot will answer them in your voice.</p>
+        <button type="button" onclick="loadFaqDefaults()" class="mt-2 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 px-3 py-1.5 rounded font-semibold">⚡ Load common FAQs for selected niche</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Plan + Meta setup -->
+    <div class="step" data-step="3">
+      <h2 class="text-xl font-bold mb-1">Plan &amp; WhatsApp setup</h2>
+      <p class="text-sm text-gray-500 mb-5">Pick a mode and tell us about your WhatsApp Business.</p>
+
+      <div>
+        <label class="block text-sm font-semibold mb-2">Mode *</label>
+        <div class="space-y-3">
+          <label class="flex items-start gap-3 p-4 border-2 border-emerald-200 rounded-lg cursor-pointer hover:border-emerald-400 has-[:checked]:border-emerald-600 has-[:checked]:bg-emerald-50">
+            <input type="radio" name="client_mode" value="1" class="mt-1" required>
+            <div>
+              <div class="font-bold">Mode 1 — DIY BYOK <span class="text-xs text-gray-500">(lowest cost)</span></div>
+              <div class="text-sm text-gray-600">You bring your own WhatsApp + Gemini API keys. Cheapest for you.</div>
+              <div class="text-xs text-gray-500 mt-1">Setup <span class="currency-symbol">Rs</span> 2,500 · Monthly <span class="currency-symbol">Rs</span> 1,000</div>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 p-4 border-2 border-blue-200 rounded-lg cursor-pointer hover:border-blue-400 has-[:checked]:border-blue-600 has-[:checked]:bg-blue-50">
+            <input type="radio" name="client_mode" value="2" class="mt-1">
+            <div>
+              <div class="font-bold">Mode 2 — Smart Pro <span class="text-xs text-gray-500">(most common)</span></div>
+              <div class="text-sm text-gray-600">You own your WhatsApp. We run the AI on our shared Gemini key. We handle all the tech.</div>
+              <div class="text-xs text-gray-500 mt-1">Setup <span class="currency-symbol">Rs</span> 4,500 · Monthly <span class="currency-symbol">Rs</span> 2,200</div>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 p-4 border-2 border-purple-200 rounded-lg cursor-pointer hover:border-purple-400 has-[:checked]:border-purple-600 has-[:checked]:bg-purple-50">
+            <input type="radio" name="client_mode" value="3" class="mt-1" checked>
+            <div>
+              <div class="font-bold">Mode 3 — VIP Managed <span class="text-xs text-gray-500">(hands-off)</span></div>
+              <div class="text-sm text-gray-600">We handle everything: WhatsApp setup, AI config, ongoing tweaks. You just reply to escalations.</div>
+              <div class="text-xs text-gray-500 mt-1">Setup <span class="currency-symbol">Rs</span> 8,000 · Monthly <span class="currency-symbol">Rs</span> 4,500</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="mt-5">
+        <label class="block text-sm font-semibold mb-1">Meta WhatsApp Phone Number ID</label>
+        <input name="phone_number_id" placeholder="123456789012345" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">Found in Meta Developer Console → WhatsApp → API Setup. Leave blank if you chose Mode 3 and we'll set it up.</p>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Meta WhatsApp Access Token</label>
+        <input name="whatsapp_token" type="password" placeholder="EAAI..." class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">System User Access Token. Leave blank if you chose Mode 3 and we'll generate it.</p>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Your own Gemini API key <span class="text-gray-500 font-normal">(only if Mode 1)</span></label>
+        <input name="gemini_api_key" placeholder="AIzaSy..." class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">From aistudio.google.com. Only required for Mode 1 — others use our shared key.</p>
+      </div>
+    </div>
+
+    <!-- STEP 4: Review + submit -->
+    <div class="step" data-step="4">
+      <h2 class="text-xl font-bold mb-1">Review &amp; submit</h2>
+      <p class="text-sm text-gray-500 mb-5">Looks good? Submit and we'll start setup within 1 business day.</p>
+
+      <div class="bg-gray-50 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap" id="reviewBox">Fill the form to see preview here.</div>
+
+      <div class="mt-5 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+        <strong>What happens next:</strong>
+        <ol class="list-decimal ml-5 mt-1 space-y-1">
+          <li>You submit this form (data is auto-copied to your clipboard)</li>
+          <li>You paste it into our admin dashboard OR WhatsApp it to us</li>
+          <li>We set up your WhatsApp Business, train the bot on your info, and connect everything</li>
+          <li>You test the bot in 24-48 hours</li>
+          <li>Go live. We monitor 24/7 and update on request.</li>
+        </ol>
+      </div>
+
+      <div class="mt-5">
+        <label class="block text-sm font-semibold mb-1">Any special instructions? <span class="text-gray-500 font-normal">(tone, edge cases, do-not-discuss topics)</span></label>
+        <textarea name="system_prompt_extra" rows="3" placeholder="e.g., 'Always reply in formal Urdu, never use English.' or 'Don't quote prices for veneers — we customize per case.'" class="w-full border border-gray-300 rounded-lg px-3 py-2"></textarea>
+      </div>
+    </div>
+
+    <!-- NAVIGATION -->
+    <div class="flex justify-between pt-4 border-t border-gray-200">
+      <button type="button" id="prevBtn" onclick="prevStep()" class="px-5 py-2.5 text-gray-600 hover:text-gray-900 font-semibold hidden">← Back</button>
+      <button type="button" id="nextBtn" onclick="nextStep()" class="ml-auto bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-semibold transition">Next →</button>
+      <button type="button" id="copyBtn" onclick="copyToClipboard()" class="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-semibold transition hidden">📋 Copy to Clipboard</button>
+      <button type="button" id="submitBtn" onclick="submitForm()" class="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-semibold transition hidden">Submit &amp; Copy →</button>
+    </div>
+  </form>
+
+  <p class="text-center text-xs text-gray-500 mt-6">Maqtomate AI · Setup in 48 hours · Cancel anytime</p>
+</div>
+
+<script>
+  // ── Multi-step nav ──
+  let currentStep = 1;
+  const totalSteps = 4;
+
+  function showStep(n) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.querySelector(`.step[data-step="${n}"]`).classList.add('active');
+    for (let i = 1; i <= totalSteps; i++) {
+      const dot = document.getElementById('dot-' + i);
+      dot.classList.remove('active', 'done', 'pending');
+      dot.classList.add(i < n ? 'done' : i === n ? 'active' : 'pending');
+      const bar = document.getElementById('bar-' + i);
+      if (bar) bar.style.background = i < n ? '#16a34a' : '#e2e8f0';
+    }
+    document.getElementById('prevBtn').classList.toggle('hidden', n === 1);
+    document.getElementById('nextBtn').classList.toggle('hidden', n === totalSteps);
+    document.getElementById('copyBtn').classList.toggle('hidden', n !== totalSteps);
+    document.getElementById('submitBtn').classList.toggle('hidden', n !== totalSteps);
+    if (n === totalSteps) updateReview();
+  }
+
+  function nextStep() {
+    if (currentStep < totalSteps) {
+      currentStep++;
+      showStep(currentStep);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+  function prevStep() {
+    if (currentStep > 1) {
+      currentStep--;
+      showStep(currentStep);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  // ── Currency auto-update on country change ──
+  document.getElementById('countrySelect').addEventListener('change', e => {
+    const opt = e.target.selectedOptions[0];
+    document.getElementById('currencyInput').value = opt.dataset.currency;
+    document.querySelectorAll('.currency-symbol').forEach(el => el.textContent = opt.dataset.symbol);
+  });
+
+  // ── Niche defaults ──
+  const NICHE_DEFAULTS = {
+    dental: {
+      services: 'Dental Checkup, Teeth Cleaning, Scaling, Root Canal, Tooth Extraction, Braces, Dental Implants, Teeth Whitening',
+      pricing: 'Checkup: {C} 500\nScaling/Cleaning: {C} 1,500\nRoot Canal: {C} 5,000\nExtraction: {C} 1,000\nBraces: {C} 25,000',
+      faqs: 'What are your timings?\nDo you take walk-ins?\nIs teeth cleaning painful?\nHow long does a root canal take?\nDo you offer payment plans?\nWhat ages do you treat?'
+    },
+    salon: {
+      services: 'Haircut, Hair Color, Highlights, Balayage, Keratin Treatment, Manicure, Pedicure, Facial, Bridal Makeup',
+      pricing: 'Haircut: {C} 1,500\nHair Color: {C} 4,000\nBalayage: {C} 8,500\nKeratin: {C} 12,000\nManicure: {C} 800\nFacial: {C} 2,500',
+      faqs: 'What are your hours?\nDo you take walk-ins?\nHow long does color take?\nDo you do bridal packages?\nWhat products do you use?\nCan I bring my own products?'
+    },
+    real_estate: {
+      services: 'Property Sales, Property Rentals, Commercial Leasing, Investment Consulting, Property Management',
+      pricing: '1-bed apartment: {C} 25,000/mo\n3-bed house: {C} 80,000/mo\n5-bed villa: {C} 200,000/mo\nSales commission: 2%',
+      faqs: 'What areas do you cover?\nIs the property still available?\nWhat is the maintenance fee?\nAre pets allowed?\nWhen can I view?\nWhat documents needed to rent?'
+    },
+    restaurant: {
+      services: 'Lunch, Dinner, Delivery, Catering, Private Events, Weekend Brunch',
+      pricing: 'Appetizers: {C} 500-{C} 1,200\nMains: {C} 1,200-{C} 2,500\nDesserts: {C} 400-{C} 800\nDelivery fee: {C} 150',
+      faqs: 'What are your hours?\nDo you deliver to my area?\nDo you accommodate dietary restrictions?\nDo you take reservations?\nIs there parking?\nDo you cater events?'
+    },
+    retail: {
+      services: 'Clothing, Accessories, Footwear, Home Goods, Custom Orders',
+      pricing: 'T-shirts: {C} 1,500\nJeans: {C} 3,500\nDresses: {C} 4,500\nShoes: {C} 5,000',
+      faqs: 'What are your hours?\nDo you ship?\nWhat is your return policy?\nDo you have size X?\nAre there any sales?\nDo you offer alterations?'
+    },
+    education: {
+      services: 'Math Tutoring, Science Tutoring, English, Test Prep (SAT/IGCSE), Language Classes',
+      pricing: '1-on-1 session: {C} 2,000\nGroup class (5 students): {C} 1,000/student\nTest prep package: {C} 25,000',
+      faqs: 'What subjects do you tutor?\nWhat ages do you teach?\nDo you offer online classes?\nWhat is your teaching methodology?\nHow do you track progress?\nDo you give homework?'
+    },
+    ecommerce: {
+      services: 'Product Catalog, Order Tracking, Returns, Custom Orders, Bulk Pricing',
+      pricing: 'Standard items: {C} 500-{C} 5,000\nBulk orders (10+): 15% off\nExpress shipping: {C} 500',
+      faqs: 'What are your shipping times?\nDo you ship internationally?\nWhat is your return policy?\nDo you have size guides?\nAre products authentic?\nCan I track my order?'
+    },
+    medical: {
+      services: 'General Consultation, Specialist Appointment, Lab Tests, Vaccinations, Follow-ups',
+      pricing: 'Consultation: {C} 2,000\nFollow-up: {C} 1,000\nLab tests: {C} 500-{C} 5,000',
+      faqs: 'What are your hours?\nDo you take insurance?\nHow do I book an appointment?\nWhat should I bring to my first visit?\nDo you do home visits?\nWhat if I need to cancel?'
+    },
+    fitness: {
+      services: 'Gym Membership, Personal Training, Group Classes, Yoga, Pilates, Nutrition Consulting',
+      pricing: 'Monthly: {C} 5,000\nQuarterly: {C} 13,500\nAnnual: {C} 45,000\nPT session: {C} 2,500',
+      faqs: 'What are your hours?\nDo you offer trial classes?\nWhat is included in membership?\nDo you have trainers?\nIs there a cancellation fee?\nDo you have ladies-only hours?'
+    },
+    automotive: {
+      services: 'Oil Change, Tire Rotation, Brake Service, Engine Diagnostics, AC Repair, Full Detailing',
+      pricing: 'Oil change: {C} 3,500\nTire rotation: {C} 1,500\nBrake pads replacement: {C} 8,000\nFull service: {C} 15,000',
+      faqs: 'What are your hours?\nDo I need an appointment?\nHow long does a service take?\nDo you use genuine parts?\nDo you offer pickup/drop-off?\nWhat car brands do you service?'
+    },
+    legal: {
+      services: 'Legal Consultation, Contract Review, Court Representation, Document Drafting, Notarization',
+      pricing: 'Initial consultation: {C} 10,000\nContract review: {C} 15,000\nCourt representation: {C} 50,000+',
+      faqs: 'What areas of law do you practice?\nWhat are your consultation fees?\nHow long does a typical case take?\nDo you offer payment plans?\nWhat should I bring to my first meeting?\nCan you represent me in court?'
+    },
+    consulting: {
+      services: 'Strategy Consulting, Marketing Consulting, Tech Consulting, Financial Planning, Brand Development',
+      pricing: 'Hourly: {C} 10,000\nProject: {C} 100,000+\nRetainer: {C} 50,000/mo',
+      faqs: 'What industries do you serve?\nWhat is your methodology?\nWhat is the typical engagement length?\nDo you work with startups?\nCan you sign an NDA?\nHow do you measure success?'
+    }
+  };
+
+  function getCurrency() {
+    const sel = document.getElementById('countrySelect');
+    return sel.selectedOptions[0].dataset.symbol;
+  }
+  function fillDefaults(field) {
+    const niche = document.getElementById('nicheSelect').value;
+    if (!niche || !NICHE_DEFAULTS[niche]) return false;
+    const cur = getCurrency();
+    return NICHE_DEFAULTS[niche][field].replace(/\{C\}/g, cur);
+  }
+  function loadNicheDefaults() {
+    const v = fillDefaults('services');
+    if (v) { document.getElementById('servicesInput').value = v; }
+  }
+  function loadPricingDefaults() {
+    const v = fillDefaults('pricing');
+    if (v) { document.getElementById('pricingInput').value = v; }
+  }
+  function loadFaqDefaults() {
+    const v = fillDefaults('faqs');
+    if (v) { document.getElementById('faqsInput').value = v; }
+  }
+
+  // ── Review + submit ──
+  function updateReview() {
+    const f = document.getElementById('onboardForm');
+    const fd = new FormData(f);
+    const data = {};
+    fd.forEach((v, k) => data[k] = v);
+    const modeLabels = { 1: 'Mode 1 — DIY BYOK', 2: 'Mode 2 — Smart Pro', 3: 'Mode 3 — VIP Managed' };
+    data.client_mode = modeLabels[data.client_mode] || data.client_mode || 'Mode 3 (default)';
+    const output = Object.entries(data)
+      .filter(([k, v]) => v && !['currency'].includes(k))
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n');
+    document.getElementById('reviewBox').textContent = output || 'Fill the form to see preview here.';
+  }
+
+  function buildJson() {
+    const f = document.getElementById('onboardForm');
+    const fd = new FormData(f);
+    const data = {};
+    fd.forEach((v, k) => { if (v) data[k] = v; });
+    if (data.client_mode) data.client_mode = parseInt(data.client_mode, 10);
+    delete data.currency;
+    delete data.faqs;
+    return data;
+  }
+
+  function copyToClipboard() {
+    const text = JSON.stringify(buildJson(), null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copyBtn');
+      const orig = btn.textContent;
+      btn.textContent = '✓ Copied!';
+      btn.classList.add('bg-green-700');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('bg-green-700'); }, 2000);
+    });
+  }
+
+  function submitForm() {
+    copyToClipboard();
+    setTimeout(() => {
+      window.location.href = 'https://wa.me/923001234567?text=' + encodeURIComponent('Hi Maqtomate, I just submitted the onboarding form. Data should be in my clipboard.');
+    }, 500);
+  }
+
+  // Init
+  showStep(1);
+</script>
+</body>
+</html>

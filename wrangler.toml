@@ -1,0 +1,22 @@
+name = "maqtomate-multitenant"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# ── D1 database (already created in your Cloudflare account) ──
+[[d1_databases]]
+binding = "MAQVORA_DB"
+database_name = "maqtomate-db"
+database_id = "e05012b3-3c59-407f-b073-41183cf5a07c"
+
+# ── KV namespace (already created in your Cloudflare account) ──
+[[kv_namespaces]]
+binding = "MAQVORA_KV"
+id = "fbf76e29e82e46ef9b19a828ae5b369e"
+
+# ── Secrets — DO NOT put these here or in any committed file ──
+# Set via `wrangler secret put <NAME>` or Cloudflare dashboard → Worker → Settings → Variables:
+#   GEMINI_API_KEY   — from aistudio.google.com
+#   ADMIN_API_KEY    — random string you invent, used to log into /admin
+#   APP_SECRET       — Meta App Secret (developers.facebook.com → App Settings → Basic)
+#   VERIFY_TOKEN     — random string you invent, must match what you enter in Meta's
+#                      webhook config screen
