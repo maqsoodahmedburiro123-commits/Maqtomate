@@ -25,7 +25,7 @@ If you don't have the repo yet: go to github.com → New repository → name it
 2. Click **Create application** → **Import a repository** → **Get started**
 3. Choose your GitHub account (authorize if first time), select `maqtomate-ai`
 4. Cloudflare will detect `wrangler.toml` automatically — confirm the Worker
-   name matches (`maqtomate-multitenant`) and click **Save and Deploy**
+   name matches (`maqtomate-worker`) and click **Save and Deploy**
 5. Every future `git push` to `main` auto-builds and deploys. No manual
    `wrangler deploy` needed again after this.
 
@@ -49,7 +49,7 @@ Where to get each:
 ## 4. Register the webhook with Meta
 
 1. developers.facebook.com → your App → WhatsApp → Configuration
-2. Webhook URL: `https://maqtomate-multitenant.<your-subdomain>.workers.dev/`
+2. Webhook URL: `https://maqtomate-worker.<your-subdomain>.workers.dev/`
    (exact URL shown in Cloudflare dashboard after step 2's deploy)
 3. Verify token: whatever you set as `VERIFY_TOKEN` in step 3
 4. Subscribe to the `messages` field

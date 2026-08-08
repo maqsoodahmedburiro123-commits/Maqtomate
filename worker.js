@@ -522,13 +522,28 @@ async function writeAuditLog(env, request, action, clientId, detail) {
   try {
     if (!env.MAQVORA_DB) return;
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    // Hash the admin token rather than storing a literal 'admin' string or the
+    // raw token — lets you tell different admin tokens apart later (e.g. once
+    // you split Super Admin / Support Agent tokens) without ever persisting
+    // the actual secret in a log table.
+    const authHeader = request.headers.get('Authorization') || '';
+    const rawToken = authHeader.replace('Bearer ', '').trim();
+    const actor = rawToken ? (await sha256Hex(rawToken)).slice(0, 12) : 'unknown';
     await env.MAQVORA_DB.prepare(`
       INSERT INTO audit_logs (actor, action, client_id, detail, ip, created_at)
-      VALUES ('admin', ?, ?, ?, ?, datetime('now'))
-    `).bind(action, clientId ?? null, detail ? JSON.stringify(detail) : null, ip).run();
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `).bind(actor, action, clientId ?? null, detail ? JSON.stringify(detail) : null, ip).run();
   } catch (e) {
     console.error('[AUDIT LOG ERROR]', e);
   }
+}
+
+// SHA-256 hex digest — used to fingerprint the admin token in audit_logs
+// without ever storing the token itself.
+async function sha256Hex(message) {
+  const data = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(hashBuffer)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ════════════════════════════════════════════════════════════════
