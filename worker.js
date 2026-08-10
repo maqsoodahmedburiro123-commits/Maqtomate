@@ -178,7 +178,86 @@ export default {
       }
     }
 
-    // ── 3. ADMIN API (/api/*) ──
+    // ── 3. PUBLIC SELF-SIGNUP (Mode 1 / DIY BYOK only) ──
+    // No admin token needed — the whole point of Mode 1 is the client sets
+    // themselves up with their own Gemini + WhatsApp credentials. Deliberately
+    // narrow: can only CREATE a Mode 1 client, can't set client_mode, can't
+    // update/delete anything, can't touch other clients' records.
+    if (request.method === 'POST' && path === '/api/self-signup') {
+      try {
+        // Basic abuse protection: 3 signups per IP per hour. This is a public,
+        // unauthenticated endpoint — without this, anyone could spam-create
+        // thousands of empty client rows.
+        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+        const rlKey = `signup-rl:${ip}`;
+        const rlCount = parseInt((await env.MAQVORA_KV?.get(rlKey)) || '0', 10);
+        if (rlCount >= 3) {
+          return jsonResponse({ error: 'Too many signup attempts. Try again later or contact support.' }, 429, corsHeaders);
+        }
+
+        const data = await request.json();
+        const requiredFields = ['business_name', 'phone_number_id', 'whatsapp_token', 'gemini_api_key'];
+        const missing = requiredFields.filter(f => !data[f] || !String(data[f]).trim());
+        if (missing.length > 0) {
+          return jsonResponse({ error: `Missing required field(s): ${missing.join(', ')}. Mode 1 (DIY BYOK) requires your own Gemini API key.` }, 400, corsHeaders);
+        }
+
+        const verifyToken = generateToken();
+        let result;
+        try {
+          result = await env.MAQVORA_DB.prepare(`
+            INSERT INTO clients (
+              business_name, niche, country, plan, monthly_fee,
+              phone_number_id, whatsapp_token, verify_token,
+              working_hours, location, services, pricing, contact_number,
+              ai_name, handoff_triggers, gemini_model, active,
+              gemini_api_key, client_mode
+            ) VALUES (?, ?, ?, 'diy-byok', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1)
+          `).bind(
+            data.business_name, data.niche || 'general', data.country || 'PK',
+            1500, // Mode 1 — see docs/pricing-canonical.md "Final Call (v3)"
+            data.phone_number_id, data.whatsapp_token, verifyToken,
+            data.working_hours || '', data.location || '', data.services || '',
+            data.pricing || '', data.contact_number || '',
+            data.ai_name || `AI Assistant for ${data.business_name}`,
+            'human,manager,agent,bande se baat,insan',
+            data.gemini_model || 'gemini-1.5-flash',
+            data.gemini_api_key
+          ).run();
+        } catch (dbErr) {
+          if (String(dbErr.message || '').includes('UNIQUE constraint')) {
+            return jsonResponse({ error: 'This WhatsApp phone_number_id is already registered.' }, 409, corsHeaders);
+          }
+          throw dbErr;
+        }
+
+        await env.MAQVORA_KV?.put(rlKey, String(rlCount + 1), { expirationTtl: 3600 });
+
+        const newClientId = result.meta.last_row_id;
+        // No admin bearer token exists for a public signup — record the
+        // caller's IP as the actor instead of hashing an (absent) token.
+        try {
+          await env.MAQVORA_DB.prepare(`
+            INSERT INTO audit_logs (actor, action, client_id, detail, ip, created_at)
+            VALUES (?, 'client.self_signup', ?, ?, ?, datetime('now'))
+          `).bind(`self-signup:${ip}`, newClientId, JSON.stringify({ business_name: data.business_name }), ip).run();
+        } catch (e) { console.error('[AUDIT LOG ERROR]', e); }
+
+        return jsonResponse({
+          success: true,
+          client_id: newClientId,
+          mode: 1,
+          webhook_url: `https://${url.hostname}/`,
+          verify_token: verifyToken,
+          next_steps: 'Register this webhook_url + verify_token in your own Meta App (developers.facebook.com) under WhatsApp > Configuration.'
+        }, 201, corsHeaders);
+      } catch (err) {
+        console.error('[SELF-SIGNUP ERROR]', err);
+        return jsonResponse({ error: 'Signup failed. Please contact support.' }, 500, corsHeaders);
+      }
+    }
+
+    // ── 4. ADMIN API (/api/*) ──
     if (path.startsWith('/api/')) {
       const authHeader = request.headers.get('Authorization') || '';
       const expectedAuth = `Bearer ${env.ADMIN_API_KEY}`;
@@ -227,7 +306,8 @@ export default {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).bind(
           data.business_name, data.niche || 'general', data.country || 'PK',
-          data.plan || 'standard', data.monthly_fee || 1500,
+          data.plan || modeToPlanName(data.client_mode || 3),
+          data.monthly_fee || modeToMonthlyFee(data.client_mode || 3),
           data.phone_number_id, data.whatsapp_token, data.verify_token || generateToken(),
           data.working_hours, data.location, data.services, data.pricing, data.contact_number,
           data.ai_name || `AI Assistant for ${data.business_name}`,
@@ -377,6 +457,17 @@ function jsonResponse(data, status, corsHeaders) {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
+}
+
+// Mode → plan label / default monthly fee, per docs/pricing-canonical.md
+// "Final Call (v3)". Used as the fallback when the admin doesn't type an
+// explicit plan/monthly_fee — keeps every client's fee correct-by-default
+// instead of relying on someone remembering the current price sheet.
+function modeToPlanName(mode) {
+  return { 1: 'diy-byok', 2: 'smart-pro', 3: 'vip-managed' }[mode] || 'vip-managed';
+}
+function modeToMonthlyFee(mode) {
+  return { 1: 1500, 2: 2000, 3: 3000 }[mode] || 3000;
 }
 
 function generateToken() {

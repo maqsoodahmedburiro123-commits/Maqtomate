@@ -79,3 +79,34 @@ distinction:
 
 **You can now honestly sell Mode 1 and Mode 3.** Sell Mode 2 only as "we handle setup
 for you" — don't imply self-serve OAuth signup exists yet, because it doesn't.
+
+---
+
+## Final Call (v3) — owner-confirmed, replaces the v2 launch/growth numbers
+
+Confirmed directly by Maqsood (Aug 2026 session). No launch/growth split this time —
+one flat rate per mode. **This is what's actually wired into the worker and landing
+pages now.**
+
+| Mode | Setup Fee | Monthly | Gemini key | Meta/WhatsApp token |
+|------|-----------|---------|------------|----------------------|
+| 1 — DIY BYOK | Rs 3,500 | Rs 1,500 | Customer's own | Customer's own |
+| 2 — Smart Pro | Rs 5,000 | Rs 2,000 | **Agency's own** | Customer's own |
+| 3 — VIP Managed | Rs 8,000 | Rs 3,000 | Agency's own | Agency's own |
+
+Note the correction from v2: Mode 2 is **not** "split" in the vague sense — it's
+specifically *WhatsApp stays with the client, AI runs on the agency's Gemini key*.
+Mode 3 is the only one where the agency also holds the client's WhatsApp/Meta access.
+
+**Where this is implemented:**
+- Landing pages (`pages/*.html`) — all 5 updated to these exact numbers
+- `worker.js` — `POST /api/self-signup` (public, Mode 1 only) creates clients with
+  `monthly_fee = 1500`, `client_mode = 1`, requires the customer's own `gemini_api_key`
+  AND `whatsapp_token` — matches this table
+- `POST /api/clients` (admin-only, for Mode 2/3) — you set `monthly_fee`/`client_mode`
+  manually per client; no fee auto-default is hardcoded here yet, so double-check the
+  number you type in against this table each time until that's automated
+
+**Still open:** Mode 2 needs its own signup path eventually (client submits their
+WhatsApp token but not a Gemini key — currently only Mode 1's fully-public signup and
+Mode 2/3's fully-manual admin creation exist; nothing in between yet).

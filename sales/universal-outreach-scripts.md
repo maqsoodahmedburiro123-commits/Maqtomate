@@ -80,7 +80,7 @@
 |------|------|
 | "Patients DM at 11 PM asking about root canal" | "I built a bot that answers in Roman Urdu in 10 seconds and books the slot." |
 | "We get ghosted after consultations" | "Bot sends a follow-up the next day with the price and the address." |
-| "Receptionist salary is too much" | "Rs 2,200/month vs. Rs 25,000/month, and it works weekends." |
+| "Receptionist salary is too much" | "Rs 2,000/month vs. Rs 25,000/month, and it works weekends." |
 | "Patients want to know about pain / duration" | "Bot pre-answers the scary questions so the dentist only talks to motivated patients." |
 
 **Top objections (see §3):** "Patients won't talk to a bot", "We already have a receptionist", "What if it gives wrong medical info?"
@@ -144,7 +144,7 @@
 > "What's your hourly receptionist cost? For most clients, the bot pays for itself in 1-2 recovered leads per month. Then it's pure margin. Want me to show you the ROI math for your specific case?"
 
 ### "Can I try it first?"
-> "Yes — we have a 14-day money-back guarantee. If it doesn't work for you, full refund, no questions. Setup is Rs 2,500–4,500. Most people stay because they see the bookings in the first week."
+> "Yes — we have a 14-day money-back guarantee. If it doesn't work for you, full refund, no questions. Setup is Rs 3,500–8,000 depending on the plan. Most people stay because they see the bookings in the first week."
 
 ### "I'm not technical"
 > "You don't have to be. We set up everything. You just fill a 5-min form and approve the bot's replies. After that, you get a dashboard — that's it. Most of our clients are 1-person shops, not tech companies."
@@ -178,17 +178,17 @@ Use these when localizing your pitch. Prices in **launch rates** (first 20 clien
 
 | Mode | Setup | Monthly |
 |------|-------|---------|
-| 1 — DIY BYOK | Rs 2,500 | Rs 1,000 |
-| 2 — Smart Pro | Rs 4,500 | Rs 2,200 |
-| 3 — VIP Managed | Rs 8,000 | Rs 4,500 |
+| 1 — DIY BYOK | Rs 3,500 | Rs 1,500 |
+| 2 — Smart Pro | Rs 5,000 | Rs 2,000 |
+| 3 — VIP Managed | Rs 8,000 | Rs 3,000 |
 
 ### India (₹) — same PK structure, ~3× the Rupee value
 
 | Mode | Setup | Monthly |
 |------|-------|---------|
-| 1 — DIY BYOK | ₹2,500 | ₹1,000 |
-| 2 — Smart Pro | ₹4,500 | ₹2,200 |
-| 3 — VIP Managed | ₹8,000 | ₹4,500 |
+| 1 — DIY BYOK | ₹3,500 | ₹1,500 |
+| 2 — Smart Pro | ₹5,000 | ₹2,000 |
+| 3 — VIP Managed | ₹8,000 | ₹3,000 |
 
 ### UAE (AED) — premium positioning
 
