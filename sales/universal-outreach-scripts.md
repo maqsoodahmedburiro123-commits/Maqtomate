@@ -178,9 +178,9 @@ Use these when localizing your pitch. Prices in **launch rates** (first 20 clien
 
 | Mode | Setup | Monthly |
 |------|-------|---------|
-| 1 — DIY BYOK | Rs 3,500 | Rs 1,500 |
-| 2 — Smart Pro | Rs 5,000 | Rs 2,000 |
-| 3 — VIP Managed | Rs 8,000 | Rs 3,000 |
+| 1 — DIY BYOK | Rs 3,500 (~$13) | Rs 1,500 (~$5) |
+| 2 — Smart Pro | Rs 5,000 (~$18) | Rs 2,000 (~$7) |
+| 3 — VIP Managed | Rs 8,000 (~$29) | Rs 3,000 (~$11) |
 
 ### India (₹) — same PK structure, ~3× the Rupee value
 

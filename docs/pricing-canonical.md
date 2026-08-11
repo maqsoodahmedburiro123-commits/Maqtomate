@@ -90,9 +90,13 @@ pages now.**
 
 | Mode | Setup Fee | Monthly | Gemini key | Meta/WhatsApp token |
 |------|-----------|---------|------------|----------------------|
-| 1 — DIY BYOK | Rs 3,500 | Rs 1,500 | Customer's own | Customer's own |
-| 2 — Smart Pro | Rs 5,000 | Rs 2,000 | **Agency's own** | Customer's own |
-| 3 — VIP Managed | Rs 8,000 | Rs 3,000 | Agency's own | Agency's own |
+| 1 — DIY BYOK | Rs 3,500 (~$13) | Rs 1,500 (~$5) | Customer's own | Customer's own |
+| 2 — Smart Pro | Rs 5,000 (~$18) | Rs 2,000 (~$7) | **Agency's own** | Customer's own |
+| 3 — VIP Managed | Rs 8,000 (~$29) | Rs 3,000 (~$11) | Agency's own | Agency's own |
+
+USD figures are approximate (PKR/USD ≈ 278 at time of writing) — shown to give
+international/overseas-Pakistani prospects a sense of scale, not a fixed FX guarantee.
+Update these if the rate moves significantly.
 
 Note the correction from v2: Mode 2 is **not** "split" in the vague sense — it's
 specifically *WhatsApp stays with the client, AI runs on the agency's Gemini key*.
