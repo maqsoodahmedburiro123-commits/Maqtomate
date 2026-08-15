@@ -406,7 +406,11 @@
   }
 
   const SELF_SIGNUP_ENDPOINT = 'https://maqtomate-worker.moviesmaqxanimation.workers.dev/api/self-signup';
+<<<<<<< HEAD
   const SUPPORT_WHATSAPP = '923111232752';
+=======
+  const SUPPORT_WHATSAPP = '923001234567';
+>>>>>>> 40d2a09 (Connect Mode 1 onboarding to secure self-signup)
 
   function safeManagedPlanPayload(data) {
     const payload = { ...data };
@@ -420,8 +424,20 @@
     const submitBtn = document.getElementById('submitBtn');
     const reviewBox = document.getElementById('reviewBox');
 
+<<<<<<< HEAD
     const required = ['business_name', 'dashboard_owner_email', 'payment_reference'];
     if (data.client_mode === 1) required.push('phone_number_id', 'whatsapp_token', 'gemini_api_key');
+=======
+    if (data.client_mode !== 1) {
+      const safePayload = safeManagedPlanPayload(data);
+      await navigator.clipboard.writeText(JSON.stringify(safePayload, null, 2));
+      reviewBox.textContent = 'Your onboarding request has been prepared safely. Your API keys were not copied to the clipboard. A Maqtomate specialist will complete the secure setup for your selected managed plan.';
+      window.location.href = 'https://wa.me/' + SUPPORT_WHATSAPP + '?text=' + encodeURIComponent('Hi Maqtomate, I submitted a Mode ' + data.client_mode + ' onboarding request. The non-sensitive setup details are copied to my clipboard. Please contact me to arrange secure credential transfer.');
+      return;
+    }
+
+    const required = ['business_name', 'phone_number_id', 'whatsapp_token', 'gemini_api_key'];
+>>>>>>> 40d2a09 (Connect Mode 1 onboarding to secure self-signup)
     const missing = required.filter(field => !String(data[field] || '').trim());
     if (missing.length) {
       reviewBox.textContent = 'Mode 1 needs the following fields before it can be activated: ' + missing.join(', ') + '.';
@@ -430,7 +446,11 @@
 
     submitBtn.disabled = true;
     const originalLabel = submitBtn.textContent;
+<<<<<<< HEAD
     submitBtn.textContent = 'Submitting payment for review…';
+=======
+    submitBtn.textContent = 'Activating your bot…';
+>>>>>>> 40d2a09 (Connect Mode 1 onboarding to secure self-signup)
 
     try {
       const response = await fetch(SELF_SIGNUP_ENDPOINT, {
@@ -443,8 +463,13 @@
         throw new Error(result.error || 'We could not activate your bot. Please try again.');
       }
 
+<<<<<<< HEAD
       reviewBox.textContent = 'Payment reference submitted for review. Request ID: ' + result.payment_request_id + '. Your Maqtomate owner will verify the payment before activating your bot or issuing your private dashboard link. Keep this request ID for support.';
       submitBtn.textContent = '✓ Submitted for Review';
+=======
+      reviewBox.textContent = 'Success! Your Mode 1 Maqtomate bot has been created. Client ID: ' + result.client_id + '. Your webhook URL is ' + result.webhook_url + '. Save the verification token shown below and enter both values in Meta WhatsApp Configuration. Verification token: ' + result.verify_token;
+      submitBtn.textContent = '✓ Bot Created';
+>>>>>>> 40d2a09 (Connect Mode 1 onboarding to secure self-signup)
       submitBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
       submitBtn.classList.add('bg-green-700');
     } catch (error) {
