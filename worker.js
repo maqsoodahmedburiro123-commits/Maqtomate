@@ -1,3 +1,8 @@
+import { hasPlanFeature } from './config/plans.js';
+import { FEATURE_KEYS, shouldProcessVoice } from './config/features.js';
+import { generateTenantText, transcribeTenantAudio } from './services/ai/router.js';
+import { canConsumeTenantUsage, recordTenantUsage } from './services/usage/usage-service.js';
+
 /**
  * Maqtomate AI — Multi-Tenant WhatsApp AI Bot Worker
  * Single Cloudflare Worker that powers ALL clients.
@@ -98,7 +103,16 @@ export default {
 
         // Route to the right client
         const storedClient = await env.MAQVORA_DB.prepare(
-          `SELECT * FROM clients WHERE phone_number_id = ? AND active = 1`
+          `SELECT c.*, COALESCE(v.voice_notes_enabled, 0) AS voice_notes_enabled,
+                  COALESCE(ai.provider_name, 'gemini') AS ai_provider_name,
+                  COALESCE(ai.model_name, c.gemini_model, 'gemini-1.5-flash') AS ai_model_name,
+                  COALESCE(ai.credential_mode, CASE WHEN c.client_mode = 1 THEN 'tenant_byok' ELSE 'platform_managed' END) AS ai_credential_mode,
+                  COALESCE(ai.active, 1) AS ai_provider_active,
+                  COALESCE(ai.validation_status, 'unvalidated') AS ai_validation_status
+           FROM clients c
+           LEFT JOIN tenant_voice_settings v ON v.client_id = c.id
+           LEFT JOIN tenant_ai_provider_settings ai ON ai.client_id = c.id
+           WHERE c.phone_number_id = ? AND c.active = 1`
         ).bind(phoneNumberId).first();
         if (!storedClient) {
           console.error('[ERROR] No client found for phone_number_id:', phoneNumberId);
@@ -139,13 +153,12 @@ export default {
           userQuery = msgObj.text.body;
         } else if (msgType === 'audio' && msgObj.audio) {
           isVoiceNote = true;
-          const geminiKey = client.gemini_api_key || env.GEMINI_API_KEY;
-          if (!geminiKey) {
-            await sendWhatsAppText(fromNumber, 'I received your voice note, but voice support is not configured yet. Please send your message as text.', client.whatsapp_token, client.phone_number_id);
-            await logToD1(env, client.id, fromNumber, 'audio', '[voice note unavailable: no AI key]', 'Voice-note processing is not configured.');
+          if (!shouldProcessVoice(client, env)) {
+            const disabledReply = 'Voice-note support is temporarily unavailable. Please send your message as text and our team will assist you.';
+            await sendWhatsAppText(fromNumber, disabledReply, client.whatsapp_token, client.phone_number_id);
+            await logToD1(env, client.id, fromNumber, 'audio', '[voice_feature_disabled]', disabledReply);
             return new Response('OK', { status: 200 });
           }
-
           voiceNoteId = await createVoiceNote(env, {
             clientId: client.id,
             whatsappMessageId: msgId,
@@ -161,7 +174,8 @@ export default {
             mediaBase64 = media.base64;
             mediaMimeType = media.mimeType || 'audio/ogg';
             await markVoiceNoteTranscribing(env, voiceNoteId, media.mimeType, media.sizeBytes);
-            userQuery = await transcribeWhatsAppVoiceWithGemini(mediaBase64, mediaMimeType, geminiKey, client.gemini_model);
+            const transcription = await transcribeTenantAudio(client, env, { mediaBase64, mimeType: mediaMimeType });
+            userQuery = transcription.transcript;
             if (!userQuery || userQuery.trim().length < 1) throw new Error('The voice note did not contain a usable transcript.');
             await completeVoiceTranscript(env, voiceNoteId, userQuery);
             await incrementVoiceMetric(env, client.id, 'voice_notes_transcribed', 1);
@@ -196,16 +210,49 @@ export default {
           const responseMessageId = await sendWhatsAppText(fromNumber, handoffResponse, client.whatsapp_token, client.phone_number_id);
           if (voiceNoteId) {
             await completeVoiceResponse(env, voiceNoteId, handoffResponse, responseMessageId);
-            await createVoiceLeadAndFollowUp(env, { clientId: client.id, voiceNoteId, fromNumber, transcript: userQuery, aiResponse: handoffResponse });
           }
+          await createLeadAndFollowUp(env, {
+            clientId: client.id,
+            voiceNoteId,
+            fromNumber,
+            transcript: userQuery,
+            aiResponse: handoffResponse,
+            sourceType: voiceNoteId ? 'whatsapp_voice_note' : 'whatsapp_text',
+          });
           await logToD1(env, client.id, fromNumber, msgType, userQuery, handoffResponse);
           return new Response('OK', { status: 200 });
         }
 
-        // Build prompt + call Gemini (Mode 1 BYOK respected). Audio is used only for the explicit transcription step.
+        // Centralized plan policy controls whether the tenant may use text automation.
+        if (!hasPlanFeature(client, FEATURE_KEYS.WHATSAPP_TEXT)) {
+          const unavailableReply = 'This automation is not available for the current business plan. Please contact the business team for help.';
+          await sendWhatsAppText(fromNumber, unavailableReply, client.whatsapp_token, client.phone_number_id);
+          await logToD1(env, client.id, fromNumber, msgType, userQuery, unavailableReply);
+          return new Response('OK', { status: 200 });
+        }
+
+        // Enforce centralized message and AI usage limits before a billable provider call is made.
+        const [messageAllowance, aiAllowance] = await Promise.all([
+          canConsumeTenantUsage(env, client, 'messages'),
+          canConsumeTenantUsage(env, client, 'ai_requests'),
+        ]);
+        if (!messageAllowance.allowed || !aiAllowance.allowed) {
+          const limitReply = 'This business has reached its current automation usage limit. Please contact the business team for assistance.';
+          await sendWhatsAppText(fromNumber, limitReply, client.whatsapp_token, client.phone_number_id);
+          await logToD1(env, client.id, fromNumber, msgType, userQuery, '[usage_limit_reached]');
+          return new Response('OK', { status: 200 });
+        }
+
+        // Build prompt through the selected provider adapter. Audio remains null for text generation.
         const systemPrompt = buildSystemPrompt(client);
-        const geminiKey = client.gemini_api_key || env.GEMINI_API_KEY;
-        const aiResponse = await callGemini(userQuery, systemPrompt, history, isVoiceNote ? null : mediaBase64, isVoiceNote ? null : mediaMimeType, geminiKey, client.gemini_model);
+        const generation = await generateTenantText(client, env, {
+          systemPrompt,
+          history,
+          userText: userQuery,
+          mediaBase64: isVoiceNote ? null : mediaBase64,
+          mediaMimeType: isVoiceNote ? null : mediaMimeType,
+        });
+        const aiResponse = generation.text;
 
         // Update history (last 24 messages = ~12 exchanges)
         history.push({ role: 'user', content: userQuery });
@@ -217,14 +264,22 @@ export default {
         const responseMessageId = await sendWhatsAppText(fromNumber, aiResponse, client.whatsapp_token, client.phone_number_id);
         if (voiceNoteId) {
           await completeVoiceResponse(env, voiceNoteId, aiResponse, responseMessageId);
-          await createVoiceLeadAndFollowUp(env, { clientId: client.id, voiceNoteId, fromNumber, transcript: userQuery, aiResponse });
+          await createLeadAndFollowUp(env, { clientId: client.id, voiceNoteId, fromNumber, transcript: userQuery, aiResponse, sourceType: 'whatsapp_voice_note' });
         }
         await logToD1(env, client.id, fromNumber, msgType, userQuery, aiResponse);
+        if (!voiceNoteId) {
+          await createLeadAndFollowUp(env, { clientId: client.id, voiceNoteId: null, fromNumber, transcript: userQuery, aiResponse, sourceType: 'whatsapp_text' });
+        }
+        await Promise.all([
+          recordTenantUsage(env, client, 'messages'),
+          recordTenantUsage(env, client, 'ai_requests'),
+        ]);
 
         return new Response('OK', { status: 200 });
       } catch (err) {
-        console.error('[WORKER ERROR]', err);
-        return new Response('Error: ' + err.message, { status: 500 });
+        const requestId = crypto.randomUUID();
+        console.error('[WORKER ERROR]', { requestId, category: 'webhook_processing_failure', message: String(err?.message || 'unknown') });
+        return new Response('We are temporarily unable to process this request. Please try again.', { status: 500, headers: { 'X-Request-Id': requestId } });
       }
     }
 
@@ -755,32 +810,6 @@ async function downloadWhatsAppMedia(mediaId, token, maxBytes = 10 * 1024 * 1024
   }
 }
 
-async function transcribeWhatsAppVoiceWithGemini(mediaBase64, mimeType, apiKey, model) {
-  if (!apiKey) throw new Error('No Gemini API key is configured for voice transcription.');
-  const chosenModel = model || 'gemini-1.5-flash';
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(chosenModel)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{
-        role: 'user',
-        parts: [
-          { text: 'Transcribe this WhatsApp voice message faithfully. Return only the spoken transcript, with no commentary, translation, markdown, or invented details. Preserve the language used by the speaker.' },
-          { inlineData: { mimeType: mimeType || 'audio/ogg', data: mediaBase64 } }
-        ]
-      }],
-      generationConfig: { temperature: 0, maxOutputTokens: 1200 }
-    })
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.error) {
-    throw new Error(`Gemini voice transcription failed (${response.status}).`);
-  }
-  const transcript = data.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
-  if (!transcript) throw new Error('Gemini returned an empty voice transcript.');
-  return transcript.slice(0, 12000);
-}
-
 function buildSystemPrompt(client) {
   return `You are ${client.ai_name || 'an AI Customer Service Assistant'} for ${client.business_name}.
 
@@ -802,45 +831,6 @@ STRICT RULES:
 7. If user sends a voice note, acknowledge naturally: "Aapki awaaz sun li, yeh raha jawab..."
 8. Never make up discounts, offers, or policies not listed above.
 9. Always end with a helpful closing like "Aur koi madad chahiye toh batain." or "Anything else I can help you with?"`;
-}
-
-async function callGemini(userQuery, systemPrompt, history, mediaBase64, mediaMimeType, apiKey, model) {
-  const contents = [];
-  contents.push({ role: 'user', parts: [{ text: systemPrompt }] });
-  contents.push({ role: 'model', parts: [{ text: 'Understood. I will assist customers based strictly on the provided business information.' }] });
-  for (const msg of history) {
-    contents.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.content }] });
-  }
-  const currentParts = [{ text: userQuery }];
-  if (mediaBase64 && mediaMimeType) {
-    currentParts.push({ inlineData: { mimeType: mediaMimeType, data: mediaBase64 } });
-  }
-  contents.push({ role: 'user', parts: currentParts });
-
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-1.5-flash'}:generateContent?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents,
-      generationConfig: { temperature: 0.65, maxOutputTokens: 350, topP: 0.9, topK: 40 },
-      safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' }
-      ]
-    })
-  });
-
-  const data = await res.json();
-  if (data.error) {
-    console.error('[GEMINI ERROR]', data.error);
-    return 'Mujhe maaf kijiye, is waqt jawab dene mein masla ho gaya hai. Bara e meharbani thori dair baad dobara try karein.';
-  }
-  if (!data.candidates || data.candidates.length === 0) {
-    return 'Mujhe maaf kijiye, is waqt jawab dene mein masla ho gaya hai. Bara e meharbani thori dair baad dobara try karein.';
-  }
-  return data.candidates[0].content.parts[0].text;
 }
 
 async function sendWhatsAppText(to, text, token, phoneId) {
@@ -929,7 +919,7 @@ async function failVoiceNote(env, voiceNoteId, code, detail) {
   `).bind(String(code).slice(0, 80), String(detail || '').slice(0, 500), voiceNoteId).run();
 }
 
-function classifyVoiceLead(transcript) {
+function classifyLeadIntent(transcript) {
   const normalized = String(transcript || '').toLowerCase();
   if (/do not contact|don't contact|stop messaging|unsubscribe/.test(normalized)) return { status: 'do_not_contact', priority: 'low', createTask: false };
   if (/not interested|no thanks|nahi chahiye|not now/.test(normalized)) return { status: 'not_interested', priority: 'low', createTask: false };
@@ -938,7 +928,7 @@ function classifyVoiceLead(transcript) {
   return { status: 'new', priority: 'normal', createTask: true };
 }
 
-async function createVoiceLeadAndFollowUp(env, { clientId, voiceNoteId, fromNumber, transcript, aiResponse }) {
+async function createLeadAndFollowUp(env, { clientId, voiceNoteId = null, fromNumber, transcript, aiResponse, sourceType = 'whatsapp_text' }) {
   const settings = await env.MAQVORA_DB.prepare(`
     SELECT lead_capture_enabled, follow_ups_enabled, follow_up_mode, follow_up_instructions
     FROM tenant_voice_settings WHERE client_id = ?
@@ -946,16 +936,18 @@ async function createVoiceLeadAndFollowUp(env, { clientId, voiceNoteId, fromNumb
   // A missing settings row means the tenant has not been activated for this feature yet.
   if (!settings || !settings.lead_capture_enabled) return { leadId: null, taskId: null };
 
-  const classification = classifyVoiceLead(transcript);
-  const summary = `WhatsApp voice note received and service response sent. ${String(aiResponse || '').slice(0, 500)}`;
+  const classification = classifyLeadIntent(transcript);
+  const sourceLabel = sourceType === 'whatsapp_voice_note' ? 'WhatsApp voice note' : 'WhatsApp text message';
+  const summary = `${sourceLabel} received and service response sent. ${String(aiResponse || '').slice(0, 500)}`;
   const leadResult = await env.MAQVORA_DB.prepare(`
     INSERT INTO lead_data (
       client_id, voice_note_id, source_type, contact_phone_e164, lead_status,
       requested_service, summary, created_at, updated_at
-    ) VALUES (?, ?, 'whatsapp_voice_note', ?, ?, ?, ?, datetime('now'), datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
   `).bind(
     clientId,
     voiceNoteId,
+    sourceType,
     fromNumber,
     classification.status,
     classification.status === 'appointment_requested' ? 'Appointment request' : null,
@@ -1008,7 +1000,10 @@ async function incrementVoiceMetric(env, clientId, metric, amount = 1) {
 // Sliding-ish window rate limit (KV isn't built for counters but good enough
 // to stop runaway cost). 20 msgs / 60s / number / client.
 async function checkRateLimit(env, clientId, fromNumber) {
-  if (!env.MAQVORA_KV) return false; // no KV = no limit, fail open
+  if (!env.MAQVORA_KV) {
+    console.error('[SECURITY ERROR] KV rate-limit binding is not configured. Rejecting automated processing.');
+    return true; // fail closed: no KV means no automated message processing.
+  }
   const key = `rl:${clientId}:${fromNumber}`;
   const raw = await env.MAQVORA_KV.get(key);
   const count = raw ? parseInt(raw, 10) : 0;

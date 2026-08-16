@@ -24,3 +24,10 @@ id = "fbf76e29e82e46ef9b19a828ae5b369e"
 
 [vars]
 PORTAL_URL = "https://maqtomate-portal.moviesmaqxanimation.workers.dev"
+# Founder-approved paused state: voice data structures stay available, but no transcription or AI voice processing runs.
+VOICE_EMPLOYEE_ENABLED = "false"
+VOICE_TRANSCRIPTION_ENABLED = "false"
+VOICE_AUTO_PROCESSING_ENABLED = "false"
+# Future workflow automation is also opt-in until a specific owner-approved workflow is deployed.
+WORKFLOWS_ENABLED = "false"
+ADVANCED_WORKFLOWS_ENABLED = "false"

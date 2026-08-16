@@ -1,0 +1,20 @@
+name = "maqtomate-worker-staging"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+[[d1_databases]]
+binding = "MAQVORA_DB"
+database_name = "maqtomate-staging-db"
+database_id = "70af24cf-71e4-411a-80dc-54765ff5accb"
+
+[[kv_namespaces]]
+binding = "MAQVORA_KV"
+id = "6134d714015e45b2922c4b374bb20900"
+
+[vars]
+PORTAL_URL = "https://maqtomate-portal-staging.moviesmaqxanimation.workers.dev"
+VOICE_EMPLOYEE_ENABLED = "false"
+VOICE_TRANSCRIPTION_ENABLED = "false"
+VOICE_AUTO_PROCESSING_ENABLED = "false"
+WORKFLOWS_ENABLED = "false"
+ADVANCED_WORKFLOWS_ENABLED = "false"

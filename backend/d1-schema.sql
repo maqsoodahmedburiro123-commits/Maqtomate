@@ -95,29 +95,5 @@ CREATE INDEX IF NOT EXISTS idx_logs_created     ON logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_client     ON audit_logs(client_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created    ON audit_logs(created_at);
 
--- ════════════════════════════════════════════════════════════════
--- SAMPLE CLIENT (testing only — DELETE BEFORE PRODUCTION)
--- ════════════════════════════════════════════════════════════════
-INSERT INTO clients (
-    business_name, niche, country, plan, monthly_fee, client_mode,
-    phone_number_id, whatsapp_token, verify_token,
-    working_hours, location, services, pricing, contact_number,
-    ai_name, active
-) VALUES (
-    'Demo Dental Clinic',
-    'dental',
-    'PK',
-    'pro',          -- legacy field; ignored by new code
-    2500,
-    3,              -- VIP Managed (default; matches original behavior)
-    'YOUR_TEST_PHONE_NUMBER_ID',
-    'YOUR_TEST_WHATSAPP_TOKEN',
-    'demo_verify_token_123',
-    '4PM - 9PM, Monday to Saturday',
-    'Auto Bhan Road, Hyderabad',
-    'Dental Checkup, Teeth Cleaning, Root Canal, Tooth Extraction, Braces',
-    'Checkup: Rs 500, Cleaning: Rs 1,500, Root Canal: Rs 5,000, Extraction: Rs 1,000, Braces: Rs 25,000',
-    '923112327752',
-    'AI Assistant for Demo Dental Clinic',
-    1
-);
+-- Fresh production databases intentionally start with no tenant rows, no demo users, and no credential-like placeholders.
+-- Create customers only through the authorized onboarding or owner-approved activation flow.
