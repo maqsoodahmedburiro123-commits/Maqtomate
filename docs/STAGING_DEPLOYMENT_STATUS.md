@@ -38,3 +38,7 @@ The following require the owner’s real third-party setup. They are deliberatel
 ## Promotion Rule
 
 Production must remain unchanged until the outstanding staging checks pass. The approved promotion sequence is: apply Migrations 005 and 006 to production, deploy the V1.1 Workers with voice still disabled, verify non-production test traffic is not routed to production, then tag and synchronize the release in GitHub.
+
+## Source Synchronization
+
+The reviewed V1.1 source is now the GitHub `main` baseline at commit `ca11bc6` (`Production V1.1 modular foundation and isolated staging`). The staging Workers were deployed from this reviewed source before the commit was pushed. Production remains on the earlier V1.0 deployment by design until the promotion gates in this document are completed.
