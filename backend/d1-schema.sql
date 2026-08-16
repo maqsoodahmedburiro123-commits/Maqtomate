@@ -117,7 +117,7 @@ INSERT INTO clients (
     'Auto Bhan Road, Hyderabad',
     'Dental Checkup, Teeth Cleaning, Root Canal, Tooth Extraction, Braces',
     'Checkup: Rs 500, Cleaning: Rs 1,500, Root Canal: Rs 5,000, Extraction: Rs 1,000, Braces: Rs 25,000',
-    '923001234567',
+    '923112327752',
     'AI Assistant for Demo Dental Clinic',
     1
 );

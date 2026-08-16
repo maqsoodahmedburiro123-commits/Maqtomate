@@ -92,20 +92,26 @@
       </div>
 
       <div class="mt-4">
-        <label class="block text-sm font-semibold mb-1">Location / city</label>
-        <input name="location" placeholder="Auto Bhan Road, Hyderabad" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-        <p class="field-help">Used in AI replies when customers ask "where are you located?"</p>
-      </div>
-
-      <div class="mt-4">
         <label class="block text-sm font-semibold mb-1">Working hours</label>
-        <input name="working_hours" placeholder="4PM - 9PM, Mon-Sat" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <input name="working_hours" placeholder="e.g., Monday–Saturday, 9 AM–6 PM" class="w-full border border-gray-300 rounded-lg px-3 py-2">
       </div>
 
       <div class="mt-4">
-        <label class="block text-sm font-semibold mb-1">Owner WhatsApp number (for human handoff) *</label>
-        <input name="contact_number" required placeholder="923001234567" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-        <p class="field-help">Format: country code + number, no + or spaces. Bot escalates to this number when needed.</p>
+        <label class="block text-sm font-semibold mb-1">Business location / city</label>
+        <input name="location" placeholder="e.g., Your city or service area" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">This is the customer business location that the AI may use in its replies. Do not enter a private home address.</p>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Business handoff WhatsApp number</label>
+        <input name="contact_number" inputmode="numeric" placeholder="e.g., 923XXXXXXXXX" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">Use the customer business number in international format, without spaces or a plus sign. This is used only when the AI hands a conversation to the business team.</p>
+      </div>
+
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Dashboard owner email *</label>
+        <input name="dashboard_owner_email" type="email" autocomplete="email" required placeholder="owner@yourbusiness.com" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">Used only to create your private Maqtomate dashboard. You receive a one-time activation link after secure signup.</p>
       </div>
     </div>
 
@@ -197,14 +203,19 @@
 
       <div class="bg-gray-50 rounded-lg p-4 text-sm font-mono whitespace-pre-wrap" id="reviewBox">Fill the form to see preview here.</div>
 
+      <div class="mt-4">
+        <label class="block text-sm font-semibold mb-1">Payment reference / transaction ID *</label>
+        <input name="payment_reference" required maxlength="160" placeholder="e.g., Bank/JazzCash/easypaisa transaction reference" class="w-full border border-gray-300 rounded-lg px-3 py-2">
+        <p class="field-help">Complete the payment using the Maqtomate instructions you received, then enter its transaction reference. Your bot and dashboard stay inactive until an Owner verifies it.</p>
+      </div>
+
       <div class="mt-5 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
         <strong>What happens next:</strong>
         <ol class="list-decimal ml-5 mt-1 space-y-1">
-          <li>You submit this form (data is auto-copied to your clipboard)</li>
-          <li>You paste it into our admin dashboard OR WhatsApp it to us</li>
-          <li>We set up your WhatsApp Business, train the bot on your info, and connect everything</li>
-          <li>You test the bot in 24-48 hours</li>
-          <li>Go live. We monitor 24/7 and update on request.</li>
+          <li>Your payment reference enters the secure Maqtomate Owner review queue.</li>
+          <li>No dashboard, bot, or private activation link is issued before payment is verified.</li>
+          <li>After approval, Maqtomate sends a one-time dashboard activation link through a trusted channel.</li>
+          <li>We complete the appropriate WhatsApp and AI setup for your selected plan before going live.</li>
         </ol>
       </div>
 
@@ -219,7 +230,7 @@
       <button type="button" id="prevBtn" onclick="prevStep()" class="px-5 py-2.5 text-gray-600 hover:text-gray-900 font-semibold hidden">← Back</button>
       <button type="button" id="nextBtn" onclick="nextStep()" class="ml-auto bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-lg font-semibold transition">Next →</button>
       <button type="button" id="copyBtn" onclick="copyToClipboard()" class="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-semibold transition hidden">📋 Copy to Clipboard</button>
-      <button type="button" id="submitBtn" onclick="submitForm()" class="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-semibold transition hidden">Submit &amp; Copy →</button>
+      <button type="button" id="submitBtn" onclick="submitForm()" class="ml-auto bg-emerald-600 hover:bg-emerald-500 text-white px-6 py-2.5 rounded-lg font-semibold transition hidden">Submit for Payment Review →</button>
     </div>
   </form>
 
@@ -394,11 +405,53 @@
     });
   }
 
-  function submitForm() {
-    copyToClipboard();
-    setTimeout(() => {
-      window.location.href = 'https://wa.me/923001234567?text=' + encodeURIComponent('Hi Maqtomate, I just submitted the onboarding form. Data should be in my clipboard.');
-    }, 500);
+  const SELF_SIGNUP_ENDPOINT = 'https://maqtomate-worker.moviesmaqxanimation.workers.dev/api/self-signup';
+  const SUPPORT_WHATSAPP = '923111232752';
+
+  function safeManagedPlanPayload(data) {
+    const payload = { ...data };
+    delete payload.whatsapp_token;
+    delete payload.gemini_api_key;
+    return payload;
+  }
+
+  async function submitForm() {
+    const data = buildJson();
+    const submitBtn = document.getElementById('submitBtn');
+    const reviewBox = document.getElementById('reviewBox');
+
+    const required = ['business_name', 'dashboard_owner_email', 'payment_reference'];
+    if (data.client_mode === 1) required.push('phone_number_id', 'whatsapp_token', 'gemini_api_key');
+    const missing = required.filter(field => !String(data[field] || '').trim());
+    if (missing.length) {
+      reviewBox.textContent = 'Mode 1 needs the following fields before it can be activated: ' + missing.join(', ') + '.';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    const originalLabel = submitBtn.textContent;
+    submitBtn.textContent = 'Submitting payment for review…';
+
+    try {
+      const response = await fetch(SELF_SIGNUP_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'We could not activate your bot. Please try again.');
+      }
+
+      reviewBox.textContent = 'Payment reference submitted for review. Request ID: ' + result.payment_request_id + '. Your Maqtomate owner will verify the payment before activating your bot or issuing your private dashboard link. Keep this request ID for support.';
+      submitBtn.textContent = '✓ Submitted for Review';
+      submitBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-500');
+      submitBtn.classList.add('bg-green-700');
+    } catch (error) {
+      reviewBox.textContent = 'Activation could not be completed: ' + error.message;
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalLabel;
+    }
   }
 
   // Init

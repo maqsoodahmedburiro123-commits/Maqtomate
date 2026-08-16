@@ -22,13 +22,24 @@
 
 export default {
   async fetch(request, env, ctx) {
+    // Only the production Pages site and the secure portal may make browser API calls.
+    // Requests without an Origin header (Meta webhooks and server-to-server calls) remain unaffected.
+    const origin = request.headers.get('Origin') || '';
+    const allowedOrigins = new Set([
+      'https://maqtomate.pages.dev',
+      'https://maqtomate-portal.moviesmaqxanimation.workers.dev'
+    ]);
     const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Vary': 'Origin',
     };
+    if (origin && allowedOrigins.has(origin)) {
+      corsHeaders['Access-Control-Allow-Origin'] = origin;
+    }
 
     if (request.method === 'OPTIONS') {
+      if (!origin || !allowedOrigins.has(origin)) return new Response(null, { status: 403, headers: corsHeaders });
       return new Response(null, { headers: corsHeaders });
     }
 
@@ -48,7 +59,7 @@ export default {
       if (mode === 'subscribe' && token && env.MAQVORA_DB) {
         const client = await env.MAQVORA_DB.prepare(
           'SELECT id FROM clients WHERE verify_token = ?'
-        ).bind(token).first();
+        ).bind(await sha256Hex(token)).first();
         if (client) return new Response(challenge, { status: 200 });
       }
       return new Response('Forbidden', { status: 403 });
@@ -61,15 +72,15 @@ export default {
         // Without this, anyone who knows your worker URL can POST fake
         // WhatsApp payloads and burn Gemini quota or spoof messages.
         const rawBody = await request.text();
-        if (env.APP_SECRET) {
-          const signatureHeader = request.headers.get('x-hub-signature-256') || '';
-          const valid = await verifyMetaSignature(rawBody, signatureHeader, env.APP_SECRET);
-          if (!valid) {
-            console.error('[SECURITY] Invalid or missing webhook signature');
-            return new Response('Forbidden', { status: 403 });
-          }
-        } else {
-          console.error('[SECURITY WARNING] APP_SECRET not set — webhook signature is NOT being verified. Set APP_SECRET (Meta App Secret) as a Worker secret.');
+        const signatureHeader = request.headers.get('x-hub-signature-256') || '';
+        if (!env.APP_SECRET) {
+          console.error('[SECURITY ERROR] APP_SECRET is not configured. Rejecting webhook to prevent fail-open vulnerability.');
+          return new Response('Forbidden — Server configuration error', { status: 403 });
+        }
+        const valid = await verifyMetaSignature(rawBody, signatureHeader, env.APP_SECRET);
+        if (!valid) {
+          console.error('[SECURITY] Invalid or missing webhook signature');
+          return new Response('Forbidden', { status: 403 });
         }
 
         const body = JSON.parse(rawBody);
@@ -86,13 +97,14 @@ export default {
         }
 
         // Route to the right client
-        const client = await env.MAQVORA_DB.prepare(
+        const storedClient = await env.MAQVORA_DB.prepare(
           `SELECT * FROM clients WHERE phone_number_id = ? AND active = 1`
         ).bind(phoneNumberId).first();
-        if (!client) {
+        if (!storedClient) {
           console.error('[ERROR] No client found for phone_number_id:', phoneNumberId);
           return new Response('OK', { status: 200 });
         }
+        const client = await hydrateTenantCredentials(env, storedClient);
 
         const fromNumber = msgObj.from;
         const msgId = msgObj.id;
@@ -116,24 +128,54 @@ export default {
         const histRaw = await env.MAQVORA_KV?.get(`conv:${client.id}:${fromNumber}`);
         if (histRaw) { try { history = JSON.parse(histRaw); } catch (e) { history = []; } }
 
-        // Parse message
+        // Parse message. Voice messages are transcribed into text before the tenant AI is asked to respond.
         let userQuery = '';
         let mediaBase64 = null;
         let mediaMimeType = null;
+        let voiceNoteId = null;
+        let isVoiceNote = false;
 
         if (msgType === 'text' && msgObj.text?.body) {
           userQuery = msgObj.text.body;
         } else if (msgType === 'audio' && msgObj.audio) {
-          const media = await downloadWhatsAppMedia(msgObj.audio.id, client.whatsapp_token);
-          if (media) {
+          isVoiceNote = true;
+          const geminiKey = client.gemini_api_key || env.GEMINI_API_KEY;
+          if (!geminiKey) {
+            await sendWhatsAppText(fromNumber, 'I received your voice note, but voice support is not configured yet. Please send your message as text.', client.whatsapp_token, client.phone_number_id);
+            await logToD1(env, client.id, fromNumber, 'audio', '[voice note unavailable: no AI key]', 'Voice-note processing is not configured.');
+            return new Response('OK', { status: 200 });
+          }
+
+          voiceNoteId = await createVoiceNote(env, {
+            clientId: client.id,
+            whatsappMessageId: msgId,
+            fromNumber,
+            mediaId: msgObj.audio.id,
+            mimeType: msgObj.audio.mime_type || null
+          });
+          await incrementVoiceMetric(env, client.id, 'voice_notes_received', 1);
+
+          try {
+            const media = await downloadWhatsAppMedia(msgObj.audio.id, client.whatsapp_token, 16 * 1024 * 1024);
+            if (!media) throw new Error('Voice media could not be downloaded.');
             mediaBase64 = media.base64;
             mediaMimeType = media.mimeType || 'audio/ogg';
-            userQuery = '[User sent a voice note. Please listen and respond to their query.]';
-          } else {
-            userQuery = '[Voice note received but could not be processed. Ask user to re-send or type.]';
+            await markVoiceNoteTranscribing(env, voiceNoteId, media.mimeType, media.sizeBytes);
+            userQuery = await transcribeWhatsAppVoiceWithGemini(mediaBase64, mediaMimeType, geminiKey, client.gemini_model);
+            if (!userQuery || userQuery.trim().length < 1) throw new Error('The voice note did not contain a usable transcript.');
+            await completeVoiceTranscript(env, voiceNoteId, userQuery);
+            await incrementVoiceMetric(env, client.id, 'voice_notes_transcribed', 1);
+          } catch (voiceError) {
+            console.error('[VOICE NOTE ERROR]', { clientId: client.id, voiceNoteId, message: String(voiceError?.message || voiceError) });
+            await failVoiceNote(env, voiceNoteId, 'transcription_failed', String(voiceError?.message || voiceError));
+            await incrementVoiceMetric(env, client.id, 'voice_note_failures', 1);
+            const unavailableReply = 'I received your voice note, but I could not understand it clearly. Please send it again or type your message.';
+            await sendWhatsAppText(fromNumber, unavailableReply, client.whatsapp_token, client.phone_number_id);
+            await logToD1(env, client.id, fromNumber, 'audio', '[voice note processing failed]', unavailableReply);
+            return new Response('OK', { status: 200 });
           }
         } else if (msgType === 'image' && msgObj.image) {
-          const media = await downloadWhatsAppMedia(msgObj.image.id, client.whatsapp_token);
+          const media = await downloadWhatsAppMedia(msgObj.image.id, client.whatsapp_token, 16 * 1024 * 1024);
           if (media) {
             mediaBase64 = media.base64;
             mediaMimeType = media.mimeType || 'image/jpeg';
@@ -146,20 +188,24 @@ export default {
           return new Response('OK', { status: 200 });
         }
 
-        // Human handoff detection (per-client configurable triggers)
+        // Human handoff detection runs on the real text transcript for voice notes.
         const handoffTriggers = (client.handoff_triggers || 'human,manager,agent,bande se baat,insan,representative,support team,baat karo').split(',');
         const lowerQuery = userQuery.toLowerCase();
         if (handoffTriggers.some(t => lowerQuery.includes(t.trim()))) {
-          await sendWhatsAppText(fromNumber,
-            `Bilkul, main aapko ${client.business_name} ke representative se connect karwa raha hoon. Thora wait karein, unka contact: ${client.contact_number || 'soon available'}.`,
-            client.whatsapp_token, client.phone_number_id);
+          const handoffResponse = `Bilkul, main aapko ${client.business_name} ke representative se connect karwa raha hoon. Thora wait karein, unka contact: ${client.contact_number || 'soon available'}.`;
+          const responseMessageId = await sendWhatsAppText(fromNumber, handoffResponse, client.whatsapp_token, client.phone_number_id);
+          if (voiceNoteId) {
+            await completeVoiceResponse(env, voiceNoteId, handoffResponse, responseMessageId);
+            await createVoiceLeadAndFollowUp(env, { clientId: client.id, voiceNoteId, fromNumber, transcript: userQuery, aiResponse: handoffResponse });
+          }
+          await logToD1(env, client.id, fromNumber, msgType, userQuery, handoffResponse);
           return new Response('OK', { status: 200 });
         }
 
-        // Build prompt + call Gemini (Mode 1 BYOK respected)
+        // Build prompt + call Gemini (Mode 1 BYOK respected). Audio is used only for the explicit transcription step.
         const systemPrompt = buildSystemPrompt(client);
         const geminiKey = client.gemini_api_key || env.GEMINI_API_KEY;
-        const aiResponse = await callGemini(userQuery, systemPrompt, history, mediaBase64, mediaMimeType, geminiKey, client.gemini_model);
+        const aiResponse = await callGemini(userQuery, systemPrompt, history, isVoiceNote ? null : mediaBase64, isVoiceNote ? null : mediaMimeType, geminiKey, client.gemini_model);
 
         // Update history (last 24 messages = ~12 exchanges)
         history.push({ role: 'user', content: userQuery });
@@ -167,8 +213,12 @@ export default {
         if (history.length > 24) history = history.slice(-24);
         await env.MAQVORA_KV?.put(`conv:${client.id}:${fromNumber}`, JSON.stringify(history), { expirationTtl: 604800 });
 
-        // Reply + log
-        await sendWhatsAppText(fromNumber, aiResponse, client.whatsapp_token, client.phone_number_id);
+        // Reply + log. A voice reply can be enabled later with a separate TTS provider; the first production release returns reliable text.
+        const responseMessageId = await sendWhatsAppText(fromNumber, aiResponse, client.whatsapp_token, client.phone_number_id);
+        if (voiceNoteId) {
+          await completeVoiceResponse(env, voiceNoteId, aiResponse, responseMessageId);
+          await createVoiceLeadAndFollowUp(env, { clientId: client.id, voiceNoteId, fromNumber, transcript: userQuery, aiResponse });
+        }
         await logToD1(env, client.id, fromNumber, msgType, userQuery, aiResponse);
 
         return new Response('OK', { status: 200 });
@@ -178,7 +228,50 @@ export default {
       }
     }
 
-    // ── 3. PUBLIC SELF-SIGNUP (Mode 1 / DIY BYOK only) ──
+    // ── 3. ADMINISTRATION (Bearer Token Protected) ──
+    if (path.startsWith('/admin/')) {
+      const auth = request.headers.get('Authorization');
+      if (auth !== `Bearer ${env.ADMIN_API_KEY}`) return new Response('Unauthorized', { status: 401 });
+
+      if (path === '/admin/clients' && request.method === 'POST') {
+        const data = await request.json();
+        const adminVerifyToken = generateToken();
+        const result = await env.MAQVORA_DB.prepare(`
+          INSERT INTO clients (business_name, niche, country, phone_number_id, whatsapp_token, verify_token, gemini_api_key, client_mode, active)
+          VALUES (?, ?, ?, ?, 'encrypted:v1', ?, 'encrypted:v1', ?, 1)
+        `).bind(data.business_name, data.niche, data.country, data.phone_number_id, await sha256Hex(adminVerifyToken), data.client_mode || 3).run();
+        const newClientId = result.meta.last_row_id;
+        try {
+          await putTenantSecret(env, newClientId, 'whatsapp_token', data.whatsapp_token);
+          await putTenantSecret(env, newClientId, 'verify_token', adminVerifyToken);
+          if (data.gemini_api_key) await putTenantSecret(env, newClientId, 'gemini_api_key', data.gemini_api_key);
+          await env.MAQVORA_DB.prepare(`
+            INSERT INTO tenant_voice_settings (client_id, voice_notes_enabled, follow_ups_enabled, follow_up_mode, lead_capture_enabled)
+            VALUES (?, 1, 1, 'whatsapp_service', 1)
+          `).bind(newClientId).run();
+        } catch (secretError) {
+          await env.MAQVORA_DB.prepare(`UPDATE clients SET active = 0, updated_at = datetime('now') WHERE id = ?`).bind(newClientId).run();
+          throw secretError;
+        }
+        await writeAuditLog(env, request, 'client.create', newClientId, { business_name: data.business_name, client_mode: data.client_mode || 3 });
+        return jsonResponse({ id: newClientId, verify_token: adminVerifyToken });
+      }
+
+      if (path === '/admin/stats' && request.method === 'GET') {
+        const stats = await env.MAQVORA_DB.prepare(`
+          SELECT 
+            (SELECT COUNT(*) FROM clients) as total_clients,
+            (SELECT COUNT(*) FROM logs) as total_messages
+        `).first();
+        return jsonResponse(stats);
+      }
+    }
+
+    // ── 4. WHATSAPP-FIRST PRODUCT FLOW ──
+    // Maqtomate intentionally does not expose paid PSTN calling routes.
+    // All automated customer follow-up happens through authorized WhatsApp service interactions.
+
+    // ── 5. PUBLIC SELF-SIGNUP (Mode 1 / DIY BYOK only) ──
     // No admin token needed — the whole point of Mode 1 is the client sets
     // themselves up with their own Gemini + WhatsApp credentials. Deliberately
     // narrow: can only CREATE a Mode 1 client, can't set client_mode, can't
@@ -196,13 +289,26 @@ export default {
         }
 
         const data = await request.json();
-        const requiredFields = ['business_name', 'phone_number_id', 'whatsapp_token', 'gemini_api_key'];
+        const mode = Number(data.client_mode || 1);
+        if (![1, 2, 3].includes(mode)) return jsonResponse({ error: 'Choose a valid Maqtomate plan.' }, 400, corsHeaders);
+        const requiredFields = ['business_name', 'dashboard_owner_email', 'payment_reference'];
+        if (mode === 1) requiredFields.push('phone_number_id', 'whatsapp_token', 'gemini_api_key');
         const missing = requiredFields.filter(f => !data[f] || !String(data[f]).trim());
         if (missing.length > 0) {
-          return jsonResponse({ error: `Missing required field(s): ${missing.join(', ')}. Mode 1 (DIY BYOK) requires your own Gemini API key.` }, 400, corsHeaders);
+          return jsonResponse({ error: `Missing required field(s): ${missing.join(', ')}.` }, 400, corsHeaders);
         }
+        const dashboardOwnerEmail = String(data.dashboard_owner_email).trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dashboardOwnerEmail) || dashboardOwnerEmail.length > 254) {
+          return jsonResponse({ error: 'Enter a valid dashboard owner email address.' }, 400, corsHeaders);
+        }
+        const paymentReference = String(data.payment_reference || '').trim().slice(0, 160);
+        const clientPhoneNumberId = mode === 1 ? String(data.phone_number_id).trim() : `pending_${generateSecureToken(18)}`;
 
+        if (!env.TENANT_DATA_ENCRYPTION_KEY) {
+          return jsonResponse({ error: 'Secure credential storage is not configured. Please contact Maqtomate support.' }, 503, corsHeaders);
+        }
         const verifyToken = generateToken();
+        const encryptedMarker = 'encrypted:v1';
         let result;
         try {
           result = await env.MAQVORA_DB.prepare(`
@@ -212,17 +318,17 @@ export default {
               working_hours, location, services, pricing, contact_number,
               ai_name, handoff_triggers, gemini_model, active,
               gemini_api_key, client_mode
-            ) VALUES (?, ?, ?, 'diy-byok', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
           `).bind(
             data.business_name, data.niche || 'general', data.country || 'PK',
-            1500, // Mode 1 — see docs/pricing-canonical.md "Final Call (v3)"
-            data.phone_number_id, data.whatsapp_token, verifyToken,
+            modeToPlanName(mode), modeToMonthlyFee(mode),
+            clientPhoneNumberId, mode === 1 ? encryptedMarker : 'pending:setup', await sha256Hex(verifyToken),
             data.working_hours || '', data.location || '', data.services || '',
             data.pricing || '', data.contact_number || '',
             data.ai_name || `AI Assistant for ${data.business_name}`,
             'human,manager,agent,bande se baat,insan',
             data.gemini_model || 'gemini-1.5-flash',
-            data.gemini_api_key
+            mode === 1 ? encryptedMarker : null, mode
           ).run();
         } catch (dbErr) {
           if (String(dbErr.message || '').includes('UNIQUE constraint')) {
@@ -231,9 +337,36 @@ export default {
           throw dbErr;
         }
 
+        const newClientId = result.meta.last_row_id;
+        try {
+          // Store any submitted tenant credentials encrypted. Managed plans remain inactive until Maqtomate completes setup.
+          if (mode === 1) {
+            await putTenantSecret(env, newClientId, 'whatsapp_token', data.whatsapp_token);
+            await putTenantSecret(env, newClientId, 'gemini_api_key', data.gemini_api_key);
+          }
+          await putTenantSecret(env, newClientId, 'verify_token', verifyToken);
+          await env.MAQVORA_DB.prepare(`
+            INSERT INTO tenant_voice_settings (client_id, voice_notes_enabled, follow_ups_enabled, follow_up_mode, lead_capture_enabled)
+            VALUES (?, 1, 1, 'whatsapp_service', 1)
+          `).bind(newClientId).run();
+          const payment = await env.MAQVORA_DB.prepare(`
+            INSERT INTO tenant_payment_requests (client_id, dashboard_email, payer_name, payment_method, payment_reference, expected_amount, currency, status)
+            VALUES (?, ?, ?, 'manual', ?, ?, ?, 'pending_review')
+          `).bind(
+            newClientId,
+            dashboardOwnerEmail,
+            data.business_name,
+            paymentReference,
+            modeToMonthlyFee(mode),
+            currencyForCountry(data.country || 'PK')
+          ).run();
+          data.payment_request_id = payment.meta.last_row_id;
+        } catch (setupError) {
+          await env.MAQVORA_DB.prepare(`UPDATE clients SET active = 0, updated_at = datetime('now') WHERE id = ?`).bind(newClientId).run();
+          throw setupError;
+        }
         await env.MAQVORA_KV?.put(rlKey, String(rlCount + 1), { expirationTtl: 3600 });
 
-        const newClientId = result.meta.last_row_id;
         // No admin bearer token exists for a public signup — record the
         // caller's IP as the actor instead of hashing an (absent) token.
         try {
@@ -246,10 +379,10 @@ export default {
         return jsonResponse({
           success: true,
           client_id: newClientId,
-          mode: 1,
-          webhook_url: `https://${url.hostname}/`,
-          verify_token: verifyToken,
-          next_steps: 'Register this webhook_url + verify_token in your own Meta App (developers.facebook.com) under WhatsApp > Configuration.'
+          mode,
+          payment_request_id: data.payment_request_id,
+          payment_status: 'pending_review',
+          next_steps: 'Your payment reference was submitted for Maqtomate owner review. Your bot and private dashboard remain inactive until the payment is verified. Once approved, Maqtomate will issue your one-time dashboard activation link through a trusted channel.'
         }, 201, corsHeaders);
       } catch (err) {
         console.error('[SELF-SIGNUP ERROR]', err);
@@ -257,7 +390,7 @@ export default {
       }
     }
 
-    // ── 4. ADMIN API (/api/*) ──
+    // ── 5. ADMIN API (/api/*) ──
     if (path.startsWith('/api/')) {
       const authHeader = request.headers.get('Authorization') || '';
       const expectedAuth = `Bearer ${env.ADMIN_API_KEY}`;
@@ -279,7 +412,11 @@ export default {
       if (request.method === 'GET' && path.match(/^\/api\/clients\/\d+$/)) {
         const id = path.split('/').pop();
         const client = await env.MAQVORA_DB.prepare(
-          `SELECT * FROM clients WHERE id = ?`
+          `SELECT id, business_name, niche, country, plan, monthly_fee, phone_number_id,
+                  working_hours, services, pricing, ai_name,
+                  system_prompt_extra, handoff_triggers, unsupported_msg, fallback_msg,
+                  gemini_model, client_mode, active, created_at, updated_at
+           FROM clients WHERE id = ?`
         ).bind(id).first();
         if (!client) return jsonResponse({ error: 'Not found' }, 404, corsHeaders);
         return jsonResponse({ client }, 200, corsHeaders);
@@ -295,6 +432,11 @@ export default {
           return jsonResponse({ error: `Missing required field(s): ${missing.join(', ')}` }, 400, corsHeaders);
         }
 
+        if (!env.TENANT_DATA_ENCRYPTION_KEY) {
+          return jsonResponse({ error: 'Secure credential storage is not configured.' }, 503, corsHeaders);
+        }
+        const adminVerifyToken = data.verify_token || generateToken();
+        const encryptedMarker = 'encrypted:v1';
         const result = await env.MAQVORA_DB.prepare(`
           INSERT INTO clients (
             business_name, niche, country, plan, monthly_fee,
@@ -308,24 +450,36 @@ export default {
           data.business_name, data.niche || 'general', data.country || 'PK',
           data.plan || modeToPlanName(data.client_mode || 3),
           data.monthly_fee || modeToMonthlyFee(data.client_mode || 3),
-          data.phone_number_id, data.whatsapp_token, data.verify_token || generateToken(),
+          data.phone_number_id, encryptedMarker, await sha256Hex(adminVerifyToken),
           data.working_hours, data.location, data.services, data.pricing, data.contact_number,
           data.ai_name || `AI Assistant for ${data.business_name}`,
           data.system_prompt_extra || '',
           data.handoff_triggers || 'human,manager,agent,bande se baat,insan',
           data.unsupported_msg || '', data.fallback_msg || '',
           data.gemini_model || 'gemini-1.5-flash', 1,
-          data.gemini_api_key || null, data.client_mode || 3
+          data.gemini_api_key ? encryptedMarker : null, data.client_mode || 3
         ).run();
 
         const newClientId = result.meta.last_row_id;
+        try {
+          await putTenantSecret(env, newClientId, 'whatsapp_token', data.whatsapp_token);
+          await putTenantSecret(env, newClientId, 'verify_token', adminVerifyToken);
+          if (data.gemini_api_key) await putTenantSecret(env, newClientId, 'gemini_api_key', data.gemini_api_key);
+          await env.MAQVORA_DB.prepare(`
+            INSERT INTO tenant_voice_settings (client_id, voice_notes_enabled, follow_ups_enabled, follow_up_mode, lead_capture_enabled)
+            VALUES (?, 1, 1, 'whatsapp_service', 1)
+          `).bind(newClientId).run();
+        } catch (secretError) {
+          await env.MAQVORA_DB.prepare(`UPDATE clients SET active = 0, updated_at = datetime('now') WHERE id = ?`).bind(newClientId).run();
+          throw secretError;
+        }
         await writeAuditLog(env, request, 'client.create', newClientId, { business_name: data.business_name, client_mode: data.client_mode || 3 });
 
         return jsonResponse({
           success: true,
           client_id: newClientId,
           webhook_url: `https://${url.hostname}/`,
-          verify_token: data.verify_token
+          verify_token: adminVerifyToken
         }, 201, corsHeaders);
       }
 
@@ -336,12 +490,12 @@ export default {
 
         const allowedFields = [
           'business_name', 'niche', 'country', 'plan', 'monthly_fee',
-          'phone_number_id', 'whatsapp_token', 'verify_token',
-          'working_hours', 'location', 'services', 'pricing', 'contact_number',
+          'phone_number_id', 'working_hours', 'location', 'services', 'pricing', 'contact_number',
           'ai_name', 'system_prompt_extra', 'handoff_triggers',
-          'unsupported_msg', 'fallback_msg', 'gemini_model', 'active',
-          'gemini_api_key', 'client_mode'
+          'unsupported_msg', 'fallback_msg', 'gemini_model', 'active', 'client_mode'
         ];
+        const sensitiveFields = ['whatsapp_token', 'verify_token', 'gemini_api_key'];
+        const sensitiveUpdates = sensitiveFields.filter(key => data[key] !== undefined);
         const fields = [];
         const values = [];
         for (const key of allowedFields) {
@@ -350,13 +504,29 @@ export default {
             values.push(data[key]);
           }
         }
-        if (fields.length === 0) {
+        if (fields.length === 0 && sensitiveUpdates.length === 0) {
           return jsonResponse({ error: 'No fields to update' }, 400, corsHeaders);
         }
-        values.push(id);
-        await env.MAQVORA_DB.prepare(
-          `UPDATE clients SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`
-        ).bind(...values).run();
+        if (fields.length > 0) {
+          values.push(id);
+          await env.MAQVORA_DB.prepare(
+            `UPDATE clients SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = ?`
+          ).bind(...values).run();
+        }
+        if (sensitiveUpdates.length > 0) {
+          if (!env.TENANT_DATA_ENCRYPTION_KEY) return jsonResponse({ error: 'Secure credential storage is not configured.' }, 503, corsHeaders);
+          for (const key of sensitiveUpdates) {
+            const value = String(data[key] || '');
+            if (key === 'verify_token') {
+              await putTenantSecret(env, id, key, value);
+              await env.MAQVORA_DB.prepare(`UPDATE clients SET verify_token = ?, updated_at = datetime('now') WHERE id = ?`).bind(await sha256Hex(value), id).run();
+            } else {
+              if (!value && key === 'whatsapp_token') return jsonResponse({ error: 'WhatsApp token cannot be empty.' }, 400, corsHeaders);
+              if (value) await putTenantSecret(env, id, key, value);
+              await env.MAQVORA_DB.prepare(`UPDATE clients SET ${key} = ?, updated_at = datetime('now') WHERE id = ?`).bind(value ? 'encrypted:v1' : null, id).run();
+            }
+          }
+        }
         await writeAuditLog(env, request, 'client.update', id, { fields_changed: Object.keys(data) });
         return jsonResponse({ success: true }, 200, corsHeaders);
       }
@@ -410,7 +580,7 @@ export default {
       return jsonResponse({ error: 'Not found' }, 404, corsHeaders);
     }
 
-    // ── 4. ADMIN DASHBOARD (/admin) ──
+    // ── 6. ADMIN DASHBOARD (/admin) ──
     if (path === '/admin') {
       return new Response(adminDashboardHTML(), {
         headers: { 'Content-Type': 'text/html', ...corsHeaders }
@@ -469,34 +639,146 @@ function modeToPlanName(mode) {
 function modeToMonthlyFee(mode) {
   return { 1: 1500, 2: 2000, 3: 3000 }[mode] || 3000;
 }
+function currencyForCountry(country) {
+  return { PK: 'PKR', IN: 'INR', BD: 'BDT', AE: 'AED', SA: 'SAR', US: 'USD', UK: 'GBP', CA: 'CAD', AU: 'AUD' }[country] || 'USD';
+}
 
 function generateToken() {
-  return 'mv_' + Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+  return `mv_${generateSecureToken(24)}`;
+}
+
+// Cryptographically secure, URL-safe token used only for passwordless dashboard activation.
+function generateSecureToken(byteLength = 32) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+// ════════════════════════════════════════════════════════════════
+// TENANT CREDENTIAL ENCRYPTION
+// ════════════════════════════════════════════════════════════════
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function tenantEncryptionKey(env) {
+  if (!env.TENANT_DATA_ENCRYPTION_KEY) throw new Error('Tenant credential encryption key is not configured.');
+  return crypto.subtle.importKey(
+    'raw',
+    base64ToBytes(env.TENANT_DATA_ENCRYPTION_KEY),
+    { name: 'AES-GCM' },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function putTenantSecret(env, clientId, secretName, plaintext) {
+  const key = await tenantEncryptionKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(String(plaintext)));
+  await env.MAQVORA_DB.prepare(`
+    INSERT INTO tenant_secret_envelopes (client_id, secret_name, ciphertext, iv, key_version, updated_at)
+    VALUES (?, ?, ?, ?, 1, datetime('now'))
+    ON CONFLICT(client_id, secret_name) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, key_version = excluded.key_version, updated_at = datetime('now')
+  `).bind(clientId, secretName, bytesToBase64(new Uint8Array(ciphertext)), bytesToBase64(iv)).run();
+}
+
+async function getTenantSecret(env, clientId, secretName) {
+  const envelope = await env.MAQVORA_DB.prepare(
+    'SELECT ciphertext, iv FROM tenant_secret_envelopes WHERE client_id = ? AND secret_name = ?'
+  ).bind(clientId, secretName).first();
+  if (!envelope) return null;
+  const key = await tenantEncryptionKey(env);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: base64ToBytes(envelope.iv) },
+    key,
+    base64ToBytes(envelope.ciphertext)
+  );
+  return new TextDecoder().decode(plaintext);
+}
+
+async function hydrateTenantCredentials(env, client) {
+  const [whatsappToken, geminiKey] = await Promise.all([
+    getTenantSecret(env, client.id, 'whatsapp_token'),
+    getTenantSecret(env, client.id, 'gemini_api_key')
+  ]);
+  if (!whatsappToken) throw new Error(`Missing encrypted WhatsApp token for tenant ${client.id}.`);
+  return { ...client, whatsapp_token: whatsappToken, gemini_api_key: geminiKey || null };
 }
 
 // ════════════════════════════════════════════════════════════════
 // META / GEMINI INTEGRATION
 // ════════════════════════════════════════════════════════════════
 
-async function downloadWhatsAppMedia(mediaId, token) {
+async function downloadWhatsAppMedia(mediaId, token, maxBytes = 10 * 1024 * 1024) {
   try {
-    const metaRes = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
+    const metaRes = await fetch(`https://graph.facebook.com/v19.0/${encodeURIComponent(mediaId)}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
+    if (!metaRes.ok) throw new Error(`Meta media lookup failed (${metaRes.status}).`);
     const metaData = await metaRes.json();
-    if (!metaData.url) return null;
-    const mediaRes = await fetch(metaData.url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    if (!metaData.url) throw new Error('Meta did not return a media download URL.');
+    const advertisedSize = Number(metaData.file_size || 0);
+    if (advertisedSize && advertisedSize > maxBytes) throw new Error('Media file exceeds the configured processing limit.');
+
+    const mediaRes = await fetch(metaData.url, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!mediaRes.ok) throw new Error(`Meta media download failed (${mediaRes.status}).`);
+    const contentLength = Number(mediaRes.headers.get('content-length') || 0);
+    if (contentLength && contentLength > maxBytes) throw new Error('Media file exceeds the configured processing limit.');
     const arrayBuffer = await mediaRes.arrayBuffer();
+    if (arrayBuffer.byteLength > maxBytes) throw new Error('Media file exceeds the configured processing limit.');
     const bytes = new Uint8Array(arrayBuffer);
     let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    return { base64: btoa(binary), mimeType: metaData.mime_type || 'application/octet-stream' };
+    for (let offset = 0; offset < bytes.byteLength; offset += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.byteLength)));
+    }
+    return {
+      base64: btoa(binary),
+      mimeType: metaData.mime_type || mediaRes.headers.get('content-type') || 'application/octet-stream',
+      sizeBytes: arrayBuffer.byteLength
+    };
   } catch (err) {
-    console.error('[MEDIA ERROR]', err);
+    console.error('[MEDIA ERROR]', String(err?.message || err));
     return null;
   }
+}
+
+async function transcribeWhatsAppVoiceWithGemini(mediaBase64, mimeType, apiKey, model) {
+  if (!apiKey) throw new Error('No Gemini API key is configured for voice transcription.');
+  const chosenModel = model || 'gemini-1.5-flash';
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(chosenModel)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: 'Transcribe this WhatsApp voice message faithfully. Return only the spoken transcript, with no commentary, translation, markdown, or invented details. Preserve the language used by the speaker.' },
+          { inlineData: { mimeType: mimeType || 'audio/ogg', data: mediaBase64 } }
+        ]
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 1200 }
+    })
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) {
+    throw new Error(`Gemini voice transcription failed (${response.status}).`);
+  }
+  const transcript = data.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+  if (!transcript) throw new Error('Gemini returned an empty voice transcript.');
+  return transcript.slice(0, 12000);
 }
 
 function buildSystemPrompt(client) {
@@ -573,13 +855,16 @@ async function sendWhatsAppText(to, text, token, phoneId) {
       recipient_type: 'individual',
       to: to,
       type: 'text',
-      text: { body: text, preview_url: false }
+      text: { body: String(text).slice(0, 4096), preview_url: false }
     })
   });
   if (!res.ok) {
     const err = await res.text();
     console.error('[WHATSAPP SEND ERROR]', err);
+    return null;
   }
+  const data = await res.json().catch(() => ({}));
+  return data.messages?.[0]?.id || null;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -591,10 +876,133 @@ async function logToD1(env, clientId, fromNumber, msgType, query, response) {
     await env.MAQVORA_DB.prepare(`
       INSERT INTO logs (client_id, from_number, msg_type, query, response, created_at)
       VALUES (?, ?, ?, ?, ?, datetime('now'))
-    `).bind(clientId, fromNumber, msgType, query.substring(0, 500), response.substring(0, 500)).run();
+    `).bind(clientId, fromNumber, msgType, String(query || '').substring(0, 500), String(response || '').substring(0, 500)).run();
   } catch (e) {
     console.error('[LOG ERROR]', e);
   }
+}
+
+async function createVoiceNote(env, { clientId, whatsappMessageId, fromNumber, mediaId, mimeType }) {
+  const result = await env.MAQVORA_DB.prepare(`
+    INSERT INTO voice_notes (
+      client_id, whatsapp_message_id, contact_phone_e164, media_id, mime_type,
+      transcription_status, retention_expires_at, received_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'received', datetime('now', '+90 days'), datetime('now'), datetime('now'), datetime('now'))
+    ON CONFLICT(whatsapp_message_id) DO UPDATE SET updated_at = datetime('now')
+  `).bind(clientId, whatsappMessageId, fromNumber, mediaId, mimeType).run();
+  if (result.meta?.last_row_id) return result.meta.last_row_id;
+  const existing = await env.MAQVORA_DB.prepare('SELECT id FROM voice_notes WHERE whatsapp_message_id = ? AND client_id = ?').bind(whatsappMessageId, clientId).first();
+  if (!existing) throw new Error('Voice-note record could not be created.');
+  return existing.id;
+}
+
+async function markVoiceNoteTranscribing(env, voiceNoteId, mimeType, sizeBytes) {
+  await env.MAQVORA_DB.prepare(`
+    UPDATE voice_notes
+    SET transcription_status = 'transcribing', mime_type = ?, media_size_bytes = ?, processing_error_code = NULL, processing_error_detail = NULL, updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(mimeType || null, Number(sizeBytes || 0) || null, voiceNoteId).run();
+}
+
+async function completeVoiceTranscript(env, voiceNoteId, transcript) {
+  await env.MAQVORA_DB.prepare(`
+    UPDATE voice_notes
+    SET transcription_status = 'completed', transcription_provider = 'gemini', transcript = ?, transcribed_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(String(transcript).slice(0, 12000), voiceNoteId).run();
+}
+
+async function completeVoiceResponse(env, voiceNoteId, responseText, responseMessageId) {
+  await env.MAQVORA_DB.prepare(`
+    UPDATE voice_notes
+    SET ai_response = ?, whatsapp_response_message_id = ?, responded_at = datetime('now'), updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(String(responseText).slice(0, 4096), responseMessageId || null, voiceNoteId).run();
+}
+
+async function failVoiceNote(env, voiceNoteId, code, detail) {
+  if (!voiceNoteId) return;
+  await env.MAQVORA_DB.prepare(`
+    UPDATE voice_notes
+    SET transcription_status = 'failed', processing_error_code = ?, processing_error_detail = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `).bind(String(code).slice(0, 80), String(detail || '').slice(0, 500), voiceNoteId).run();
+}
+
+function classifyVoiceLead(transcript) {
+  const normalized = String(transcript || '').toLowerCase();
+  if (/do not contact|don't contact|stop messaging|unsubscribe/.test(normalized)) return { status: 'do_not_contact', priority: 'low', createTask: false };
+  if (/not interested|no thanks|nahi chahiye|not now/.test(normalized)) return { status: 'not_interested', priority: 'low', createTask: false };
+  if (/book|booking|appointment|schedule|visit|meeting|available today|available tomorrow/.test(normalized)) return { status: 'appointment_requested', priority: 'high', createTask: true };
+  if (/price|cost|charges|interested|want|need|details|information/.test(normalized)) return { status: 'interested', priority: 'normal', createTask: true };
+  return { status: 'new', priority: 'normal', createTask: true };
+}
+
+async function createVoiceLeadAndFollowUp(env, { clientId, voiceNoteId, fromNumber, transcript, aiResponse }) {
+  const settings = await env.MAQVORA_DB.prepare(`
+    SELECT lead_capture_enabled, follow_ups_enabled, follow_up_mode, follow_up_instructions
+    FROM tenant_voice_settings WHERE client_id = ?
+  `).bind(clientId).first();
+  // A missing settings row means the tenant has not been activated for this feature yet.
+  if (!settings || !settings.lead_capture_enabled) return { leadId: null, taskId: null };
+
+  const classification = classifyVoiceLead(transcript);
+  const summary = `WhatsApp voice note received and service response sent. ${String(aiResponse || '').slice(0, 500)}`;
+  const leadResult = await env.MAQVORA_DB.prepare(`
+    INSERT INTO lead_data (
+      client_id, voice_note_id, source_type, contact_phone_e164, lead_status,
+      requested_service, summary, created_at, updated_at
+    ) VALUES (?, ?, 'whatsapp_voice_note', ?, ?, ?, ?, datetime('now'), datetime('now'))
+  `).bind(
+    clientId,
+    voiceNoteId,
+    fromNumber,
+    classification.status,
+    classification.status === 'appointment_requested' ? 'Appointment request' : null,
+    summary
+  ).run();
+  const leadId = leadResult.meta?.last_row_id || null;
+  if (classification.status === 'appointment_requested' || classification.status === 'interested') {
+    await incrementVoiceMetric(env, clientId, 'qualified_leads', 1);
+  }
+
+  if (!settings.follow_ups_enabled || !classification.createTask) return { leadId, taskId: null };
+  const humanActionNeeded = classification.status === 'appointment_requested' || classification.status === 'interested';
+  const taskType = humanActionNeeded ? 'human_follow_up' : 'whatsapp_service';
+  const taskStatus = humanActionNeeded ? 'open' : 'completed';
+  const title = humanActionNeeded
+    ? `Review WhatsApp lead: ${classification.status.replace('_', ' ')}`
+    : 'WhatsApp service follow-up completed';
+  const details = `${settings.follow_up_instructions || 'Review the customer conversation and take the next appropriate business action.'}\n\nTranscript: ${String(transcript || '').slice(0, 2000)}`;
+  const taskResult = await env.MAQVORA_DB.prepare(`
+    INSERT INTO follow_up_tasks (
+      client_id, lead_id, voice_note_id, task_type, task_status, priority, title, details,
+      due_at, completed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'open' THEN datetime('now', '+1 hour') ELSE NULL END,
+      CASE WHEN ? = 'completed' THEN datetime('now') ELSE NULL END, datetime('now'), datetime('now'))
+  `).bind(
+    clientId, leadId, voiceNoteId, taskType, taskStatus, classification.priority, title, details,
+    taskStatus, taskStatus
+  ).run();
+  await incrementVoiceMetric(env, clientId, 'follow_ups_created', 1);
+  if (taskStatus === 'completed') await incrementVoiceMetric(env, clientId, 'follow_ups_completed', 1);
+  return { leadId, taskId: taskResult.meta?.last_row_id || null };
+}
+
+const VOICE_METRIC_COLUMNS = new Set([
+  'voice_notes_received', 'voice_notes_transcribed', 'voice_note_failures',
+  'follow_ups_created', 'follow_ups_completed', 'qualified_leads'
+]);
+
+async function incrementVoiceMetric(env, clientId, metric, amount = 1) {
+  if (!VOICE_METRIC_COLUMNS.has(metric)) throw new Error('Unsupported voice metric.');
+  const value = Math.max(0, Number(amount) || 0);
+  await env.MAQVORA_DB.prepare(`
+    INSERT INTO tenant_voice_metrics_daily (client_id, metric_date, ${metric}, created_at, updated_at)
+    VALUES (?, date('now'), ?, datetime('now'), datetime('now'))
+    ON CONFLICT(client_id, metric_date) DO UPDATE SET
+      ${metric} = ${metric} + excluded.${metric}, updated_at = datetime('now')
+  `).bind(clientId, value).run();
 }
 
 // Sliding-ish window rate limit (KV isn't built for counters but good enough

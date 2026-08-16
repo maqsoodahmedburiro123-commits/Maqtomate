@@ -19,7 +19,7 @@ Each client gets their own isolated Cloudflare Worker. You configure the bot beh
 | `CLIENT_LOCATION` | Address or location description. | `Auto Bhan Road, Hyderabad` |
 | `CLIENT_SERVICES` | Comma-separated list of services/products. | `Dental Checkup, Teeth Cleaning, Root Canal` |
 | `CLIENT_PRICING` | Pricing breakdown. Use newlines for readability. | `Checkup: Rs 500\nCleaning: Rs 1,500` |
-| `CLIENT_CONTACT` | Human escalation contact. | `923001234567` |
+| `CLIENT_CONTACT` | Human escalation contact. | `923111232752` |
 
 ---
 

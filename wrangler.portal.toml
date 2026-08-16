@@ -1,0 +1,20 @@
+name = "maqtomate-portal"
+main = "portal-worker.js"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "MAQVORA_DB"
+database_name = "maqtomate-db"
+database_id = "e05012b3-3c59-407f-b073-41183cf5a07c"
+
+[[kv_namespaces]]
+binding = "MAQVORA_KV"
+id = "fbf76e29e82e46ef9b19a828ae5b369e"
+
+[vars]
+TEST_MODE_OWNER_EMAIL = "maqsoodahmedburiro123@gmail.com"
+PORTAL_URL = "https://maqtomate-portal.moviesmaqxanimation.workers.dev"
+TURNSTILE_SITEKEY = "0x4AAAAAAERUn1wYihDSVn1V"
+
+# No telephone-provider or portal-to-core calling secret is required for the WhatsApp-first product.

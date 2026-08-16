@@ -20,3 +20,7 @@ id = "fbf76e29e82e46ef9b19a828ae5b369e"
 #   APP_SECRET       — Meta App Secret (developers.facebook.com → App Settings → Basic)
 #   VERIFY_TOKEN     — random string you invent, must match what you enter in Meta's
 #                      webhook config screen
+# No paid telephony secret is required. Maqtomate uses WhatsApp service follow-ups and tenant task records.
+
+[vars]
+PORTAL_URL = "https://maqtomate-portal.moviesmaqxanimation.workers.dev"
