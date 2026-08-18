@@ -705,6 +705,33 @@ export default {
         return jsonResponse({ success: true, token_status: 'VALID' }, 200, corsHeaders);
       }
 
+      // PUT /api/clients/:id/whatsapp-connection — metadata-only connection handoff. Tokens use the dedicated encrypted route.
+      if (request.method === 'PUT' && path.match(/^\/api\/clients\/\d+\/whatsapp-connection$/)) {
+        const id = Number(path.split('/')[3]);
+        const data = await request.json().catch(() => null);
+        const wabaId = String(data?.waba_id || '').trim();
+        const phoneNumberId = String(data?.phone_number_id || '').trim();
+        const displayName = String(data?.display_name || '').trim().slice(0, 120);
+        if (!Number.isInteger(id) || id < 1 || !/^\d{8,30}$/.test(wabaId) || !/^\d{8,30}$/.test(phoneNumberId)) {
+          return jsonResponse({ error: 'A valid tenant, WABA ID, and Phone Number ID are required.' }, 400, corsHeaders);
+        }
+        const client = await env.MAQVORA_DB.prepare('SELECT id FROM clients WHERE id = ?').bind(id).first();
+        if (!client) return jsonResponse({ error: 'Tenant not found.' }, 404, corsHeaders);
+
+        await env.MAQVORA_DB.prepare('UPDATE clients SET phone_number_id = ?, updated_at = datetime(\'now\') WHERE id = ?').bind(phoneNumberId, id).run();
+        await env.MAQVORA_DB.prepare(`
+          INSERT INTO tenant_whatsapp_connections (client_id, waba_id, phone_number_id, display_name, connection_status, phone_status, updated_at)
+          VALUES (?, ?, ?, ?, 'PHONE_FOUND', 'FOUND', datetime('now'))
+          ON CONFLICT(client_id) DO UPDATE SET waba_id = excluded.waba_id, phone_number_id = excluded.phone_number_id,
+            display_name = excluded.display_name,
+            connection_status = CASE WHEN tenant_whatsapp_connections.connection_status IN ('PHONE_REGISTERED', 'WABA_SUBSCRIBED', 'WEBHOOK_VERIFIED', 'TEST_MESSAGE_SUCCESS', 'ACTIVE') THEN tenant_whatsapp_connections.connection_status ELSE 'PHONE_FOUND' END,
+            phone_status = CASE WHEN tenant_whatsapp_connections.phone_status = 'REGISTERED' THEN 'REGISTERED' ELSE 'FOUND' END,
+            updated_at = datetime('now')
+        `).bind(id, wabaId, phoneNumberId, displayName || null).run();
+        await writeAuditLog(env, request, 'tenant.whatsapp_connection.metadata_saved', id, { has_waba_id: true, has_phone_number_id: true });
+        return jsonResponse({ success: true, connection_status: 'PHONE_FOUND' }, 200, corsHeaders);
+      }
+
       // POST /api/clients — create
       if (request.method === 'POST' && path === '/api/clients') {
         const data = await request.json();

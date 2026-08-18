@@ -110,6 +110,16 @@ test('permanent System User token route validates before encryption and never re
   assert.doesNotMatch(tokenRoute, /jsonResponse\(\{[^}]*\btoken\s*:/);
 });
 
+test('WhatsApp connection metadata route accepts identifiers but keeps token handling on the encrypted route', () => {
+  const start = workerSource.indexOf('// PUT /api/clients/:id/whatsapp-connection');
+  const end = workerSource.indexOf('// POST /api/clients — create', start);
+  const connectionRoute = start === -1 || end === -1 ? '' : workerSource.slice(start, end);
+  assert.match(connectionRoute, /waba_id/);
+  assert.match(connectionRoute, /phone_number_id/);
+  assert.match(connectionRoute, /tenant\.whatsapp_connection\.metadata_saved/);
+  assert.doesNotMatch(connectionRoute, /putTenantSecret|access_token|whatsapp_token/);
+});
+
 test('owner health route provides component states without disclosing secret values', () => {
   const healthRoute = workerSource.match(/path === '\/api\/health'[\s\S]{0,1800}/)?.[0] || '';
   assert.match(healthRoute, /worker: 'healthy'/);
