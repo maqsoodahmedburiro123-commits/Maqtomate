@@ -839,10 +839,14 @@ export default {
       // GET /api/audit — audit log
       if (request.method === 'GET' && path === '/api/audit') {
         const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10), 500);
+        const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10), 0);
+        const total = await env.MAQVORA_DB.prepare('SELECT COUNT(*) AS count FROM audit_logs').first();
         const rows = await env.MAQVORA_DB.prepare(
-          `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?`
-        ).bind(limit).all();
-        return jsonResponse({ audit: rows.results }, 200, corsHeaders);
+          `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ? OFFSET ?`
+        ).bind(limit, offset).all();
+        const totalCount = Number(total?.count || 0);
+        const nextOffset = offset + rows.results.length < totalCount ? offset + rows.results.length : null;
+        return jsonResponse({ audit: rows.results, page: { limit, offset, total: totalCount, next_offset: nextOffset } }, 200, corsHeaders);
       }
 
       // GET /api/whatsapp-connections — connection metadata only. Never returns access tokens or secret envelope values.

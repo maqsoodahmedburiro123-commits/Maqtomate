@@ -107,6 +107,13 @@ test('owner health route provides component states without disclosing secret val
   assert.doesNotMatch(healthRoute, /GEMINI_API_KEY:|APP_SECRET:|ADMIN_API_KEY:/);
 });
 
+test('owner audit route supports bounded offset pagination', () => {
+  const auditRoute = workerSource.match(/path === '\/api\/audit'[\s\S]{0,1600}/)?.[0] || '';
+  assert.match(auditRoute, /searchParams\.get\('offset'\)/);
+  assert.match(auditRoute, /LIMIT \? OFFSET \?/);
+  assert.match(auditRoute, /next_offset/);
+});
+
 test('fresh schema does not insert a demo tenant or credential-like placeholder', () => {
   assert.doesNotMatch(schemaSource, /INSERT INTO clients/i);
   assert.doesNotMatch(schemaSource, /YOUR_TEST_PHONE_NUMBER_ID|demo_verify_token/i);
