@@ -732,6 +732,30 @@ export default {
         return jsonResponse({ success: true, connection_status: 'PHONE_FOUND' }, 200, corsHeaders);
       }
 
+      // POST /api/owner-test/send — explicit controlled message test. Recipient and body are never written to audit logs.
+      if (request.method === 'POST' && path === '/api/owner-test/send') {
+        const data = await request.json().catch(() => null);
+        const recipient = String(data?.recipient || '').replace(/\D/g, '');
+        const message = String(data?.message || '').trim();
+        if (!/^\d{8,15}$/.test(recipient) || !message || message.length > 1000) {
+          return jsonResponse({ error: 'A valid test recipient and message are required.' }, 400, corsHeaders);
+        }
+        const ownerTenant = await env.MAQVORA_DB.prepare('SELECT id, phone_number_id, active FROM clients WHERE id = 1').first();
+        if (!ownerTenant || Number(ownerTenant.active) !== 1 || !ownerTenant.phone_number_id) {
+          return jsonResponse({ error: 'Owner test tenant is not ready.' }, 409, corsHeaders);
+        }
+        const token = await getTenantSecret(env, 1, 'whatsapp_token');
+        if (!token) return jsonResponse({ error: 'Owner test WhatsApp credential is unavailable.' }, 409, corsHeaders);
+
+        const messageId = await sendWhatsAppText(recipient, message, token, ownerTenant.phone_number_id);
+        await env.MAQVORA_DB.prepare(`
+          UPDATE tenant_whatsapp_connections SET last_test_at = datetime('now'), updated_at = datetime('now')
+          WHERE client_id = 1
+        `).run().catch(() => null);
+        await writeAuditLog(env, request, 'owner_test.message_requested', 1, { delivery: 'requested' });
+        return jsonResponse({ success: true, delivery: 'requested', message_id: messageId ? 'received' : 'unknown' }, 200, corsHeaders);
+      }
+
       // POST /api/clients — create
       if (request.method === 'POST' && path === '/api/clients') {
         const data = await request.json();

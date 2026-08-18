@@ -112,12 +112,21 @@ test('permanent System User token route validates before encryption and never re
 
 test('WhatsApp connection metadata route accepts identifiers but keeps token handling on the encrypted route', () => {
   const start = workerSource.indexOf('// PUT /api/clients/:id/whatsapp-connection');
-  const end = workerSource.indexOf('// POST /api/clients — create', start);
+  const end = workerSource.indexOf('// POST /api/owner-test/send', start);
   const connectionRoute = start === -1 || end === -1 ? '' : workerSource.slice(start, end);
   assert.match(connectionRoute, /waba_id/);
   assert.match(connectionRoute, /phone_number_id/);
   assert.match(connectionRoute, /tenant\.whatsapp_connection\.metadata_saved/);
   assert.doesNotMatch(connectionRoute, /putTenantSecret|access_token|whatsapp_token/);
+});
+
+test('owner test message route avoids audit logging recipient or message content', () => {
+  const start = workerSource.indexOf('// POST /api/owner-test/send');
+  const end = workerSource.indexOf('// POST /api/clients — create', start);
+  const testRoute = start === -1 || end === -1 ? '' : workerSource.slice(start, end);
+  assert.match(testRoute, /sendWhatsAppText\(recipient, message, token/);
+  assert.match(testRoute, /owner_test\.message_requested/);
+  assert.match(testRoute, /writeAuditLog\(env, request, 'owner_test\.message_requested', 1, \{ delivery: 'requested' \}\)/);
 });
 
 test('owner health route provides component states without disclosing secret values', () => {
