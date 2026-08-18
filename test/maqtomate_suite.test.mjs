@@ -92,6 +92,14 @@ test('connection state is metadata-only and the Worker has a protected read rout
   assert.doesNotMatch(routeSource, /tenant_secret_envelopes|last_error_detail/);
 });
 
+test('owner tenant list exposes safe AI readiness metadata without tenant credential fields', () => {
+  const clientsRoute = workerSource.match(/if \(request\.method === 'GET' && path === '\/api\/clients'\)[\s\S]*?return jsonResponse\(\{ clients: clients\.results \}, 200, corsHeaders\);/)?.[0] || '';
+  assert.match(clientsRoute, /ai_provider_name/);
+  assert.match(clientsRoute, /ai_credential_mode/);
+  assert.match(clientsRoute, /AS ai_status/);
+  assert.doesNotMatch(clientsRoute, /whatsapp_token|gemini_api_key|tenant_secret_envelopes/);
+});
+
 test('owner health route provides component states without disclosing secret values', () => {
   const healthRoute = workerSource.match(/path === '\/api\/health'[\s\S]{0,1800}/)?.[0] || '';
   assert.match(healthRoute, /worker: 'healthy'/);

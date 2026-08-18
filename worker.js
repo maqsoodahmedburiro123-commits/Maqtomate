@@ -634,8 +634,20 @@ export default {
       if (request.method === 'GET' && path === '/api/clients') {
         const clients = await env.MAQVORA_DB.prepare(
           `SELECT id, business_name, niche, country, plan, client_mode, monthly_fee,
-                  active, created_at, phone_number_id, contact_number
-           FROM clients ORDER BY created_at DESC`
+                  c.active, c.created_at, c.phone_number_id, c.contact_number,
+                  COALESCE(ai.provider_name, 'gemini') AS ai_provider_name,
+                  COALESCE(ai.model_name, c.gemini_model, 'platform-managed') AS ai_model_name,
+                  COALESCE(ai.credential_mode, CASE WHEN c.client_mode = 1 THEN 'tenant_byok' ELSE 'platform_managed' END) AS ai_credential_mode,
+                  CASE
+                    WHEN c.active = 0 THEN 'paused'
+                    WHEN ai.active = 0 THEN 'disabled'
+                    WHEN ai.validation_status = 'valid' THEN 'ready'
+                    WHEN ai.validation_status IN ('invalid', 'error') THEN 'needs_attention'
+                    ELSE 'pending_validation'
+                  END AS ai_status
+           FROM clients c
+           LEFT JOIN tenant_ai_provider_settings ai ON ai.client_id = c.id
+           ORDER BY c.created_at DESC`
         ).all();
         return jsonResponse({ clients: clients.results }, 200, corsHeaders);
       }
