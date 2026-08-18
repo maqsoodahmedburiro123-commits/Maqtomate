@@ -100,6 +100,16 @@ test('owner tenant list exposes safe AI readiness metadata without tenant creden
   assert.doesNotMatch(clientsRoute, /whatsapp_token|gemini_api_key|tenant_secret_envelopes/);
 });
 
+test('permanent System User token route validates before encryption and never returns the token', () => {
+  const start = workerSource.indexOf('// POST /api/clients/:id/system-user-token');
+  const end = workerSource.indexOf('// POST /api/clients — create', start);
+  const tokenRoute = start === -1 || end === -1 ? '' : workerSource.slice(start, end);
+  assert.match(tokenRoute, /graph\.facebook\.com\/v23\.0/);
+  assert.match(tokenRoute, /await putTenantSecret\(env, id, 'whatsapp_token', token\)/);
+  assert.match(tokenRoute, /tenant\.system_user_token\.saved/);
+  assert.doesNotMatch(tokenRoute, /jsonResponse\(\{[^}]*\btoken\s*:/);
+});
+
 test('owner health route provides component states without disclosing secret values', () => {
   const healthRoute = workerSource.match(/path === '\/api\/health'[\s\S]{0,1800}/)?.[0] || '';
   assert.match(healthRoute, /worker: 'healthy'/);

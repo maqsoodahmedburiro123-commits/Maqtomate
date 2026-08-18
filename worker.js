@@ -666,6 +666,45 @@ export default {
         return jsonResponse({ client }, 200, corsHeaders);
       }
 
+      // POST /api/clients/:id/system-user-token — validate and encrypt a permanent Meta token; never returns it.
+      if (request.method === 'POST' && path.match(/^\/api\/clients\/\d+\/system-user-token$/)) {
+        const id = Number(path.split('/')[3]);
+        const data = await request.json().catch(() => null);
+        const token = typeof data?.token === 'string' ? data.token.trim() : '';
+        if (!Number.isInteger(id) || id < 1 || token.length < 40 || token.length > 4096) {
+          return jsonResponse({ error: 'A valid tenant and Meta token are required.' }, 400, corsHeaders);
+        }
+
+        const client = await env.MAQVORA_DB.prepare('SELECT id, phone_number_id FROM clients WHERE id = ?').bind(id).first();
+        const phoneNumberId = String(client?.phone_number_id || '').trim();
+        if (!client || !/^\d{8,30}$/.test(phoneNumberId)) {
+          return jsonResponse({ error: 'Set the tenant Phone Number ID before saving a System User token.' }, 400, corsHeaders);
+        }
+
+        const validation = await fetch(`https://graph.facebook.com/v23.0/${phoneNumberId}?fields=id`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const isValid = validation.ok;
+        await env.MAQVORA_DB.prepare(`
+          INSERT INTO tenant_whatsapp_connections (client_id, phone_number_id, connection_status, phone_status, token_status, last_error_code, updated_at)
+          VALUES (?, ?, 'PHONE_FOUND', 'FOUND', ?, ?, datetime('now'))
+          ON CONFLICT(client_id) DO UPDATE SET phone_number_id = excluded.phone_number_id,
+            token_status = excluded.token_status, last_error_code = excluded.last_error_code,
+            connection_status = CASE WHEN tenant_whatsapp_connections.connection_status IN ('PHONE_REGISTERED', 'WABA_SUBSCRIBED', 'WEBHOOK_VERIFIED', 'TEST_MESSAGE_SUCCESS', 'ACTIVE') THEN tenant_whatsapp_connections.connection_status ELSE 'PHONE_FOUND' END,
+            phone_status = CASE WHEN tenant_whatsapp_connections.phone_status = 'REGISTERED' THEN 'REGISTERED' ELSE 'FOUND' END,
+            updated_at = datetime('now')
+        `).bind(id, phoneNumberId, isValid ? 'VALID' : 'INVALID', isValid ? null : 'META_TOKEN_VALIDATION_FAILED').run();
+
+        if (!isValid) {
+          await writeAuditLog(env, request, 'tenant.system_user_token.rejected', id, { validation: 'failed' });
+          return jsonResponse({ success: false, token_status: 'INVALID' }, 422, corsHeaders);
+        }
+
+        await putTenantSecret(env, id, 'whatsapp_token', token);
+        await writeAuditLog(env, request, 'tenant.system_user_token.saved', id, { validation: 'valid' });
+        return jsonResponse({ success: true, token_status: 'VALID' }, 200, corsHeaders);
+      }
+
       // POST /api/clients — create
       if (request.method === 'POST' && path === '/api/clients') {
         const data = await request.json();
