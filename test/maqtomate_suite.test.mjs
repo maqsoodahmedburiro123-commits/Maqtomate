@@ -10,6 +10,7 @@ const schemaSource = await readFile(new URL('../backend/d1-schema.sql', import.m
 const migration004 = await readFile(new URL('../backend/migration-004-voice-calling.sql', import.meta.url), 'utf8');
 const migration005 = await readFile(new URL('../backend/migration-005-modular-foundation.sql', import.meta.url), 'utf8');
 const migration006 = await readFile(new URL('../backend/migration-006-automation-usage.sql', import.meta.url), 'utf8');
+const migration007 = await readFile(new URL('../backend/migration-007-whatsapp-connection-state.sql', import.meta.url), 'utf8');
 
 function signedRequest(payload, appSecret) {
   const body = JSON.stringify(payload);
@@ -77,6 +78,25 @@ test('migration set contains isolated voice, provider, workflow, and usage struc
   assert.match(migration005, /CREATE TABLE IF NOT EXISTS tenant_feature_overrides/);
   assert.match(migration006, /CREATE TABLE IF NOT EXISTS automation_workflows/);
   assert.match(migration006, /CREATE TABLE IF NOT EXISTS tenant_usage_periods/);
+  assert.match(migration007, /CREATE TABLE IF NOT EXISTS tenant_whatsapp_connections/);
+  assert.match(migration007, /TEST_MESSAGE_SUCCESS/);
+  assert.match(migration007, /FOREIGN KEY \(client_id\) REFERENCES clients\(id\) ON DELETE CASCADE/);
+  assert.doesNotMatch(migration007, /access_token|whatsapp_token|gemini_api_key/i);
+});
+
+test('connection state is metadata-only and the Worker has a protected read route', () => {
+  assert.match(schemaSource, /CREATE TABLE IF NOT EXISTS tenant_whatsapp_connections/);
+  assert.match(workerSource, /path === '\/api\/whatsapp-connections'/);
+  assert.match(workerSource, /Never returns access tokens or secret envelope values/);
+  const routeSource = workerSource.match(/path === '\/api\/whatsapp-connections'[\s\S]{0,2200}/)?.[0] || '';
+  assert.doesNotMatch(routeSource, /tenant_secret_envelopes|last_error_detail/);
+});
+
+test('owner health route provides component states without disclosing secret values', () => {
+  const healthRoute = workerSource.match(/path === '\/api\/health'[\s\S]{0,1800}/)?.[0] || '';
+  assert.match(healthRoute, /worker: 'healthy'/);
+  assert.match(healthRoute, /meta_webhook_security/);
+  assert.doesNotMatch(healthRoute, /GEMINI_API_KEY:|APP_SECRET:|ADMIN_API_KEY:/);
 });
 
 test('fresh schema does not insert a demo tenant or credential-like placeholder', () => {

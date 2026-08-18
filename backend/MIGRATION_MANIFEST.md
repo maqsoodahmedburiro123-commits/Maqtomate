@@ -10,8 +10,8 @@ The production D1 inventory contains the original base tables plus tenant authen
 
 | Environment state | Required SQL files | Notes |
 |---|---|---|
-| **Fresh development/staging database** | `d1-schema.sql` → `migration-002-tenant-dashboard-auth.sql` → `migration-003-manual-payment-gate.sql` → `migration-004-voice-calling.sql` → `migration-005-modular-foundation.sql` → `migration-006-automation-usage.sql` | The fresh schema intentionally creates no demo tenant and contains no credential-like placeholder. |
-| **Current Maqtomate production database** | `migration-005-modular-foundation.sql` → `migration-006-automation-usage.sql` | Migrations 002–004 are already represented by live tables. Verify their existence first. |
+| **Fresh development/staging database** | `d1-schema.sql` → `migration-002-tenant-dashboard-auth.sql` → `migration-003-manual-payment-gate.sql` → `migration-004-voice-calling.sql` → `migration-005-modular-foundation.sql` → `migration-006-automation-usage.sql` | The fresh schema intentionally creates no demo tenant and contains no credential-like placeholder. The fresh schema already includes the connection-state table. |
+| **Current Maqtomate production database** | First verify migration/table inventory; then apply only any missing additive migrations, including `migration-007-whatsapp-connection-state.sql` after 002–006 are confirmed. | Never infer the live state from filenames or historical notes. The connection-state migration does not store credentials. |
 | **Very old legacy database lacking auth/payment/voice tables** | Assess table inventory first; apply only the missing migrations in order. | Do not guess. Use a temporary copy or staging D1 instance if history is uncertain. |
 | **Historical pre-schema database** | `archive/migration-001-audit-mode1.sql` only if the original schema lacks `audit_logs`, `gemini_api_key`, and `client_mode`. | This is a one-time compatibility migration and must never be run on a fresh database. |
 
@@ -21,6 +21,7 @@ The production D1 inventory contains the original base tables plus tenant authen
 |---|---|---|
 | `migration-005-modular-foundation.sql` | Provider metadata, tenant feature overrides, platform AI configuration metadata | Additive tables only; no credential values; API secrets stay in `tenant_secret_envelopes` and Worker secrets. |
 | `migration-006-automation-usage.sql` | Workflow definitions/executions, tenant usage periods, lead/task operational enrichment | Additive tables plus one-time `ALTER TABLE` additions to lead and follow-up tables. |
+| `migration-007-whatsapp-connection-state.sql` | Official Meta onboarding/connection state, WABA/phone metadata, and sanitized error state | Additive metadata table only. Meta access tokens and other secrets remain in `tenant_secret_envelopes`. |
 
 ## Legacy Credential Cleanup Procedure
 

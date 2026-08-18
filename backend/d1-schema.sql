@@ -56,6 +56,40 @@ CREATE TABLE IF NOT EXISTS clients (
 );
 
 -- ════════════════════════════════════════════════════════════════
+-- TENANT WHATSAPP CONNECTIONS — metadata/state only; secrets are in tenant_secret_envelopes
+-- ════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS tenant_whatsapp_connections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL UNIQUE,
+    waba_id TEXT,
+    meta_business_id TEXT,
+    phone_number_id TEXT,
+    display_phone_number TEXT,
+    display_name TEXT,
+    connection_status TEXT NOT NULL DEFAULT 'NOT_CONNECTED'
+        CHECK (connection_status IN (
+            'NOT_CONNECTED', 'ONBOARDING_STARTED', 'META_AUTHORIZED', 'WABA_FOUND',
+            'PHONE_FOUND', 'PHONE_REGISTERED', 'WABA_SUBSCRIBED', 'WEBHOOK_VERIFIED',
+            'TEST_MESSAGE_SUCCESS', 'ACTIVE', 'META_AUTH_FAILED', 'WABA_ACCESS_FAILED',
+            'PHONE_REGISTRATION_FAILED', 'TOKEN_FAILED', 'WEBHOOK_FAILED', 'TEST_MESSAGE_FAILED'
+        )),
+    webhook_status TEXT NOT NULL DEFAULT 'NOT_CONFIGURED'
+        CHECK (webhook_status IN ('NOT_CONFIGURED', 'PENDING', 'VERIFIED', 'FAILED')),
+    phone_status TEXT NOT NULL DEFAULT 'NOT_FOUND'
+        CHECK (phone_status IN ('NOT_FOUND', 'FOUND', 'REGISTERED', 'FAILED')),
+    token_status TEXT NOT NULL DEFAULT 'NOT_AVAILABLE'
+        CHECK (token_status IN ('NOT_AVAILABLE', 'PENDING', 'VALID', 'INVALID', 'EXPIRED', 'FAILED')),
+    last_error_code TEXT,
+    last_error_detail TEXT,
+    connected_at DATETIME,
+    last_verified_at DATETIME,
+    last_test_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+);
+
+-- ════════════════════════════════════════════════════════════════
 -- LOGS — every conversation across every client
 -- ════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS logs (
@@ -90,6 +124,8 @@ CREATE INDEX IF NOT EXISTS idx_clients_active   ON clients(active);
 CREATE INDEX IF NOT EXISTS idx_clients_niche    ON clients(niche);
 CREATE INDEX IF NOT EXISTS idx_clients_country  ON clients(country);
 CREATE INDEX IF NOT EXISTS idx_clients_mode     ON clients(client_mode);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_connections_status ON tenant_whatsapp_connections(connection_status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_connections_waba ON tenant_whatsapp_connections(waba_id);
 CREATE INDEX IF NOT EXISTS idx_logs_client      ON logs(client_id);
 CREATE INDEX IF NOT EXISTS idx_logs_created     ON logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_client     ON audit_logs(client_id);

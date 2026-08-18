@@ -23,7 +23,7 @@ function buildConversationContents({ systemPrompt, history = [], userText, media
 export const GeminiAdapter = Object.freeze({
   name: 'gemini',
 
-  async generateText({ apiKey, model = 'gemini-1.5-flash', systemPrompt, history, userText, mediaBase64, mediaMimeType }) {
+  async generateText({ apiKey, model = 'gemini-3.6-flash', systemPrompt, history, userText, mediaBase64, mediaMimeType }) {
     if (!apiKey) throw safeProviderError('provider_key_unavailable', 503);
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',
@@ -46,7 +46,7 @@ export const GeminiAdapter = Object.freeze({
     return { text: text.slice(0, 4096), provider: 'gemini', model };
   },
 
-  async transcribeAudio({ apiKey, model = 'gemini-1.5-flash', mediaBase64, mimeType = 'audio/ogg' }) {
+  async transcribeAudio({ apiKey, model = 'gemini-3.6-flash', mediaBase64, mimeType = 'audio/ogg' }) {
     if (!apiKey) throw safeProviderError('provider_key_unavailable', 503);
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',

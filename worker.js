@@ -51,8 +51,154 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // ── 1. META WEBHOOK VERIFICATION (GET /) ──
-    if (request.method === 'GET' && path === '/') {
+    // ── OWNER TEST CREDENTIAL HANDOFF (single-use, HTTPS-only) ──
+    // This prevents the owner from pasting a Meta access token into chat. The submitted
+    // token is validated with Meta, AES-GCM encrypted in the tenant vault, then the link
+    // is invalidated. This is intentionally limited to the fixed Meta test number.
+    if (path === '/owner-test-connect') {
+      const handoffToken = url.searchParams.get('token') || '';
+      const expectedHandoffToken = env.OWNER_TEST_HANDOFF_TOKEN || '';
+      if (!expectedHandoffToken || !timingSafeEqual(handoffToken, expectedHandoffToken)) {
+        return new Response('Not found', { status: 404 });
+      }
+      const handoffKey = `owner-test-handoff:${await sha256Hex(expectedHandoffToken)}`;
+      const used = await env.MAQVORA_KV?.get(handoffKey);
+      if (used) return new Response('This secure setup link has already been used.', { status: 410 });
+
+      if (request.method === 'GET') {
+        return new Response(ownerTestConnectHtml(), {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-store, max-age=0',
+            'Referrer-Policy': 'no-referrer',
+            'X-Frame-Options': 'DENY',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+          }
+        });
+      }
+
+      if (request.method === 'POST') {
+        try {
+          const data = await request.formData();
+          const metaAccessToken = String(data.get('meta_access_token') || '').trim();
+          if (metaAccessToken.length < 30 || metaAccessToken.length > 4096) {
+            return ownerTestConnectError('The access token format is not valid. Return to Meta and generate a new access code.');
+          }
+
+          const testPhoneNumberId = String(env.OWNER_TEST_PHONE_NUMBER_ID || '').trim();
+          if (!/^\d{8,30}$/.test(testPhoneNumberId)) {
+            throw new Error('The dedicated Maqtomate test phone number is not configured.');
+          }
+          const metaValidation = await fetch(`https://graph.facebook.com/v23.0/${testPhoneNumberId}?fields=id,display_phone_number,status`, {
+            headers: { Authorization: `Bearer ${metaAccessToken}` }
+          });
+          let limitedScopeTestCredential = false;
+          if (!metaValidation.ok) {
+            let errorPayload = null;
+            try { errorPayload = await metaValidation.json(); } catch (_) { /* preserve status-only diagnostic */ }
+            const errorCode = errorPayload?.error?.code ?? null;
+            const errorSubcode = errorPayload?.error?.error_subcode ?? null;
+            await env.MAQVORA_KV?.put('diagnostic:last_owner_test_token_validation', JSON.stringify({
+              at: new Date().toISOString(),
+              http_status: metaValidation.status,
+              meta_error_code: errorCode,
+              meta_error_subcode: errorSubcode,
+              meta_error_type: errorPayload?.error?.type ?? null
+            }), { expirationTtl: 900 });
+            // Meta's API Setup temporary credential can send test WhatsApp messages but may not
+            // grant read access to the phone-number node. Accept only this known permission-limited
+            // response on the owner-only, single-use test path; all invalid/OAuth errors remain rejected.
+            limitedScopeTestCredential = errorCode === 100 && errorSubcode === 33;
+            if (!limitedScopeTestCredential) {
+              return ownerTestConnectError('Meta did not accept this credential. Generate a new access token in API Setup and try again.');
+            }
+          } else {
+            const phoneInfo = await metaValidation.json();
+            if (String(phoneInfo.id || '') !== testPhoneNumberId) {
+              return ownerTestConnectError('This access token does not belong to the Maqtomate test phone number.');
+            }
+          }
+
+          const ownerTenant = await env.MAQVORA_DB.prepare('SELECT id FROM clients WHERE id = 1').first();
+          if (!ownerTenant) throw new Error('Owner test tenant is unavailable.');
+          await env.MAQVORA_DB.prepare(`
+            UPDATE clients
+            SET business_name = ?, niche = ?, country = ?, phone_number_id = ?, client_mode = 3, active = 1, updated_at = datetime('now')
+            WHERE id = 1
+          `).bind('Maqtomate Owner Test', 'AI automation demonstration', 'Pakistan', testPhoneNumberId).run();
+          await putTenantSecret(env, 1, 'whatsapp_token', metaAccessToken);
+          await env.MAQVORA_DB.prepare(`
+            INSERT INTO tenant_ai_provider_settings (client_id, provider_name, model_name, credential_mode, active, validation_status, updated_at)
+            VALUES (1, 'gemini', 'gemini-3.6-flash', 'platform_managed', 1, 'valid', datetime('now'))
+            ON CONFLICT(client_id) DO UPDATE SET provider_name = excluded.provider_name, model_name = excluded.model_name,
+              credential_mode = excluded.credential_mode, active = excluded.active, validation_status = excluded.validation_status,
+              updated_at = excluded.updated_at
+          `).run();
+          await env.MAQVORA_KV?.put(handoffKey, 'used', { expirationTtl: 86400 });
+          await writeAuditLog(env, request, 'owner_test.meta_token_configured', 1, { phone_number_id: testPhoneNumberId, limited_scope_test_credential: limitedScopeTestCredential });
+          return ownerTestConnectSuccessHtml();
+        } catch (err) {
+          console.error('[OWNER TEST CONNECT ERROR]', String(err?.message || err));
+          return ownerTestConnectError('The secure setup could not be completed. Generate a fresh Meta access code and try once more.');
+        }
+      }
+
+      return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, POST' } });
+    }
+
+    // ── OWNER TEST META WEBHOOK SUBSCRIPTION SYNC (single-use) ──
+    // The callback URL is configured in the Meta dashboard; this server-to-server call
+    // subscribes the app to the test WABA so inbound message events reach that callback.
+    if (path === '/owner-test-sync' && request.method === 'POST') {
+      const syncToken = url.searchParams.get('token') || '';
+      const expectedSyncToken = env.OWNER_TEST_SYNC_TOKEN || '';
+      if (!expectedSyncToken || !timingSafeEqual(syncToken, expectedSyncToken)) return new Response('Not found', { status: 404 });
+      const syncKey = `owner-test-sync:${await sha256Hex(expectedSyncToken)}`;
+      if (await env.MAQVORA_KV?.get(syncKey)) return new Response('This one-time sync link has already been used.', { status: 410 });
+      let subscriptionStage = 'initialize';
+      try {
+        const testPhoneNumberId = String(env.OWNER_TEST_PHONE_NUMBER_ID || '').trim();
+        const wabaId = String(env.OWNER_TEST_WABA_ID || '').trim();
+        if (!/^\d{8,30}$/.test(testPhoneNumberId) || !/^\d{8,30}$/.test(wabaId)) {
+          throw new Error('Dedicated Maqtomate test identifiers are not configured.');
+        }
+        subscriptionStage = 'load_tenant';
+        const client = await env.MAQVORA_DB.prepare('SELECT id, phone_number_id FROM clients WHERE id = 1 AND active = 1').first();
+        if (!client || String(client.phone_number_id) !== testPhoneNumberId) throw new Error('Owner test tenant is not ready.');
+        subscriptionStage = 'load_encrypted_token';
+        const metaAccessToken = await getTenantSecret(env, 1, 'whatsapp_token');
+        if (!metaAccessToken) throw new Error('Owner test token is unavailable.');
+        subscriptionStage = 'meta_subscribe_request';
+        const subscribeResponse = await fetch(`https://graph.facebook.com/v23.0/${wabaId}/subscribed_apps`, {
+          method: 'POST', headers: { Authorization: `Bearer ${metaAccessToken}` }
+        });
+        if (!subscribeResponse.ok) {
+          let errorPayload = null;
+          try { errorPayload = await subscribeResponse.json(); } catch (_) { /* status-only diagnostic */ }
+          await env.MAQVORA_KV?.put('diagnostic:last_owner_test_subscription', JSON.stringify({
+            at: new Date().toISOString(), stage: subscriptionStage, http_status: subscribeResponse.status,
+            meta_error_code: errorPayload?.error?.code ?? null,
+            meta_error_subcode: errorPayload?.error?.error_subcode ?? null,
+            meta_error_type: errorPayload?.error?.type ?? null
+          }), { expirationTtl: 900 });
+          throw new Error(`Meta subscription request failed (${subscribeResponse.status}).`);
+        }
+        await env.MAQVORA_KV?.put(syncKey, 'used', { expirationTtl: 86400 });
+        await writeAuditLog(env, request, 'owner_test.meta_webhook_subscribed', 1, { waba_id: wabaId });
+        return jsonResponse({ success: true, subscription: 'active' }, 200, corsHeaders);
+      } catch (err) {
+        const safeReason = String(err?.message || err).replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]').slice(0, 160);
+        await env.MAQVORA_KV?.put('diagnostic:last_owner_test_subscription', JSON.stringify({
+          at: new Date().toISOString(), stage: subscriptionStage, worker_error: safeReason
+        }), { expirationTtl: 900 });
+        console.error('[OWNER TEST SYNC ERROR]', safeReason);
+        return jsonResponse({ success: false, error: 'Meta test subscription could not be completed.' }, 502, corsHeaders);
+      }
+    }
+
+    // ── 1. META WEBHOOK VERIFICATION (GET / or /webhook) ──
+    if (request.method === 'GET' && (path === '/' || path === '/webhook')) {
       const mode = url.searchParams.get('hub.mode');
       const token = url.searchParams.get('hub.verify_token');
       const challenge = url.searchParams.get('hub.challenge');
@@ -70,25 +216,35 @@ export default {
       return new Response('Forbidden', { status: 403 });
     }
 
-    // ── 2. INCOMING WHATSAPP MESSAGES (POST /) ──
-    if (request.method === 'POST' && path === '/') {
+    // ── 2. INCOMING WHATSAPP MESSAGES (POST / or /webhook) ──
+    if (request.method === 'POST' && (path === '/' || path === '/webhook')) {
       try {
         // Verify request actually came from Meta (HMAC-SHA256).
         // Without this, anyone who knows your worker URL can POST fake
         // WhatsApp payloads and burn Gemini quota or spoof messages.
         const rawBody = await request.text();
         const signatureHeader = request.headers.get('x-hub-signature-256') || '';
+        let diagnosticBody = null;
+        try { diagnosticBody = JSON.parse(rawBody); } catch (_) { /* strict verification below still rejects malformed bodies */ }
         if (!env.APP_SECRET) {
+          await env.MAQVORA_KV?.put('diagnostic:last_meta_webhook', JSON.stringify({ at: new Date().toISOString(), signature_present: Boolean(signatureHeader), signature_valid: false, reason: 'app_secret_missing' }), { expirationTtl: 900 });
           console.error('[SECURITY ERROR] APP_SECRET is not configured. Rejecting webhook to prevent fail-open vulnerability.');
           return new Response('Forbidden — Server configuration error', { status: 403 });
         }
         const valid = await verifyMetaSignature(rawBody, signatureHeader, env.APP_SECRET);
+        await env.MAQVORA_KV?.put('diagnostic:last_meta_webhook', JSON.stringify({
+          at: new Date().toISOString(),
+          signature_present: Boolean(signatureHeader),
+          signature_valid: valid,
+          phone_number_id: String(diagnosticBody?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id || ''),
+          has_message: Boolean(diagnosticBody?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.id)
+        }), { expirationTtl: 900 });
         if (!valid) {
           console.error('[SECURITY] Invalid or missing webhook signature');
           return new Response('Forbidden', { status: 403 });
         }
 
-        const body = JSON.parse(rawBody);
+        const body = diagnosticBody || JSON.parse(rawBody);
         const entry = body.entry?.[0];
         const change = entry?.changes?.[0];
         const value = change?.value;
@@ -105,7 +261,7 @@ export default {
         const storedClient = await env.MAQVORA_DB.prepare(
           `SELECT c.*, COALESCE(v.voice_notes_enabled, 0) AS voice_notes_enabled,
                   COALESCE(ai.provider_name, 'gemini') AS ai_provider_name,
-                  COALESCE(ai.model_name, c.gemini_model, 'gemini-1.5-flash') AS ai_model_name,
+                  COALESCE(ai.model_name, c.gemini_model, 'gemini-3.6-flash') AS ai_model_name,
                   COALESCE(ai.credential_mode, CASE WHEN c.client_mode = 1 THEN 'tenant_byok' ELSE 'platform_managed' END) AS ai_credential_mode,
                   COALESCE(ai.active, 1) AS ai_provider_active,
                   COALESCE(ai.validation_status, 'unvalidated') AS ai_validation_status
@@ -289,36 +445,57 @@ export default {
       if (auth !== `Bearer ${env.ADMIN_API_KEY}`) return new Response('Unauthorized', { status: 401 });
 
       if (path === '/admin/clients' && request.method === 'POST') {
-        const data = await request.json();
-        const adminVerifyToken = generateToken();
-        const result = await env.MAQVORA_DB.prepare(`
-          INSERT INTO clients (business_name, niche, country, phone_number_id, whatsapp_token, verify_token, gemini_api_key, client_mode, active)
-          VALUES (?, ?, ?, ?, 'encrypted:v1', ?, 'encrypted:v1', ?, 1)
-        `).bind(data.business_name, data.niche, data.country, data.phone_number_id, await sha256Hex(adminVerifyToken), data.client_mode || 3).run();
-        const newClientId = result.meta.last_row_id;
         try {
-          await putTenantSecret(env, newClientId, 'whatsapp_token', data.whatsapp_token);
-          await putTenantSecret(env, newClientId, 'verify_token', adminVerifyToken);
-          if (data.gemini_api_key) await putTenantSecret(env, newClientId, 'gemini_api_key', data.gemini_api_key);
-          await env.MAQVORA_DB.prepare(`
-            INSERT INTO tenant_voice_settings (client_id, voice_notes_enabled, follow_ups_enabled, follow_up_mode, lead_capture_enabled)
-            VALUES (?, 1, 1, 'whatsapp_service', 1)
-          `).bind(newClientId).run();
-        } catch (secretError) {
-          await env.MAQVORA_DB.prepare(`UPDATE clients SET active = 0, updated_at = datetime('now') WHERE id = ?`).bind(newClientId).run();
-          throw secretError;
+          const data = await request.json();
+          const adminVerifyToken = generateToken();
+          const result = await env.MAQVORA_DB.prepare(`
+            INSERT INTO clients (business_name, niche, country, phone_number_id, whatsapp_token, verify_token, gemini_api_key, client_mode, active)
+            VALUES (?, ?, ?, ?, 'encrypted:v1', ?, 'encrypted:v1', ?, 1)
+          `).bind(data.business_name, data.niche, data.country, data.phone_number_id, await sha256Hex(adminVerifyToken), data.client_mode || 3).run();
+          const newClientId = result.meta.last_row_id;
+          try {
+            await putTenantSecret(env, newClientId, 'whatsapp_token', data.whatsapp_token);
+            await putTenantSecret(env, newClientId, 'verify_token', adminVerifyToken);
+            if (data.gemini_api_key) await putTenantSecret(env, newClientId, 'gemini_api_key', data.gemini_api_key);
+            await env.MAQVORA_DB.prepare(`
+              INSERT INTO tenant_voice_settings (client_id, voice_notes_enabled, follow_ups_enabled, follow_up_mode, lead_capture_enabled)
+              VALUES (?, 1, 1, 'whatsapp_service', 1)
+            `).bind(newClientId).run();
+          } catch (secretError) {
+            await env.MAQVORA_DB.prepare(`UPDATE clients SET active = 0, updated_at = datetime('now') WHERE id = ?`).bind(newClientId).run();
+            throw secretError;
+          }
+          await writeAuditLog(env, request, 'client.create', newClientId, { business_name: data.business_name, client_mode: data.client_mode || 3 });
+          return jsonResponse({ success: true, id: newClientId, verify_token: adminVerifyToken });
+        } catch (err) {
+          return jsonResponse({ success: false, error: String(err?.message || err) }, 500);
         }
-        await writeAuditLog(env, request, 'client.create', newClientId, { business_name: data.business_name, client_mode: data.client_mode || 3 });
-        return jsonResponse({ id: newClientId, verify_token: adminVerifyToken });
       }
 
       if (path === '/admin/stats' && request.method === 'GET') {
         const stats = await env.MAQVORA_DB.prepare(`
-          SELECT 
+          SELECT
             (SELECT COUNT(*) FROM clients) as total_clients,
             (SELECT COUNT(*) FROM logs) as total_messages
         `).first();
         return jsonResponse(stats);
+      }
+
+      if (path.startsWith('/admin/clients/') && request.method === 'PUT') {
+        try {
+          const clientId = Number(path.split('/')[3]);
+          const data = await request.json();
+          if (data.whatsapp_token) await putTenantSecret(env, clientId, 'whatsapp_token', data.whatsapp_token);
+          if (data.gemini_api_key) await putTenantSecret(env, clientId, 'gemini_api_key', data.gemini_api_key);
+          if (data.phone_number_id) {
+            await env.MAQVORA_DB.prepare('UPDATE clients SET phone_number_id = ?, updated_at = datetime("now") WHERE id = ?').bind(data.phone_number_id, clientId).run();
+          }
+          await writeAuditLog(env, request, 'client.update', clientId, { updated: Object.keys(data) });
+          return jsonResponse({ success: true });
+        } catch (err) {
+          console.error('[PUT CLIENT ERROR DETAIL]', err);
+          return jsonResponse({ success: false, error: String(err?.message || err) }, 500);
+        }
       }
     }
 
@@ -382,7 +559,7 @@ export default {
             data.pricing || '', data.contact_number || '',
             data.ai_name || `AI Assistant for ${data.business_name}`,
             'human,manager,agent,bande se baat,insan',
-            data.gemini_model || 'gemini-1.5-flash',
+            data.gemini_model || 'gemini-3.6-flash',
             mode === 1 ? encryptedMarker : null, mode
           ).run();
         } catch (dbErr) {
@@ -511,7 +688,7 @@ export default {
           data.system_prompt_extra || '',
           data.handoff_triggers || 'human,manager,agent,bande se baat,insan',
           data.unsupported_msg || '', data.fallback_msg || '',
-          data.gemini_model || 'gemini-1.5-flash', 1,
+          data.gemini_model || 'gemini-3.6-flash', 1,
           data.gemini_api_key ? encryptedMarker : null, data.client_mode || 3
         ).run();
 
@@ -623,6 +800,30 @@ export default {
         }, 200, corsHeaders);
       }
 
+      // GET /api/health — owner-safe service availability only; never returns secret values or D1 error internals.
+      if (request.method === 'GET' && path === '/api/health') {
+        try {
+          await env.MAQVORA_DB.prepare('SELECT 1 AS healthy').first();
+          return jsonResponse({
+            worker: 'healthy',
+            database: 'healthy',
+            kv: env.MAQVORA_KV ? 'configured' : 'missing',
+            gemini: env.GEMINI_API_KEY ? 'configured' : 'missing',
+            meta_webhook_security: env.APP_SECRET ? 'configured' : 'missing',
+            timestamp: new Date().toISOString()
+          }, 200, corsHeaders);
+        } catch (error) {
+          return jsonResponse({
+            worker: 'degraded',
+            database: 'unavailable',
+            kv: env.MAQVORA_KV ? 'configured' : 'missing',
+            gemini: env.GEMINI_API_KEY ? 'configured' : 'missing',
+            meta_webhook_security: env.APP_SECRET ? 'configured' : 'missing',
+            timestamp: new Date().toISOString()
+          }, 503, corsHeaders);
+        }
+      }
+
       // GET /api/audit — audit log
       if (request.method === 'GET' && path === '/api/audit') {
         const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10), 500);
@@ -630,6 +831,29 @@ export default {
           `SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?`
         ).bind(limit).all();
         return jsonResponse({ audit: rows.results }, 200, corsHeaders);
+      }
+
+      // GET /api/whatsapp-connections — connection metadata only. Never returns access tokens or secret envelope values.
+      if (request.method === 'GET' && path === '/api/whatsapp-connections') {
+        try {
+          const connections = await env.MAQVORA_DB.prepare(`
+            SELECT wc.client_id, wc.waba_id, wc.meta_business_id, wc.phone_number_id,
+                   wc.display_phone_number, wc.display_name, wc.connection_status,
+                   wc.webhook_status, wc.phone_status, wc.token_status,
+                   wc.last_error_code, wc.connected_at,
+                   wc.last_verified_at, wc.last_test_at, wc.updated_at,
+                   c.business_name, c.active
+            FROM tenant_whatsapp_connections wc
+            INNER JOIN clients c ON c.id = wc.client_id
+            ORDER BY wc.updated_at DESC
+          `).all();
+          return jsonResponse({ connections: connections.results }, 200, corsHeaders);
+        } catch (error) {
+          if (String(error?.message || '').includes('no such table')) {
+            return jsonResponse({ error: 'Connection-state schema is not applied.' }, 503, corsHeaders);
+          }
+          throw error;
+        }
       }
 
       return jsonResponse({ error: 'Not found' }, 404, corsHeaders);
@@ -682,6 +906,18 @@ function jsonResponse(data, status, corsHeaders) {
     status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders }
   });
+}
+
+function ownerTestConnectHtml() {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Connect Meta Test Number | Maqtomate</title><style>body{margin:0;background:#0b1020;color:#ecf2ff;font:16px system-ui,-apple-system,Segoe UI,sans-serif}.card{max-width:540px;margin:8vh auto;padding:32px;background:#151d33;border:1px solid #2d3b60;border-radius:18px;box-shadow:0 20px 70px #0008}h1{font-size:25px;margin:0 0 12px}p{line-height:1.55;color:#c9d4ea}.note{padding:13px 15px;background:#202b48;border-left:3px solid #68b6ff;border-radius:7px;font-size:14px}label{display:block;font-weight:700;margin:25px 0 9px}textarea{box-sizing:border-box;width:100%;height:125px;border-radius:10px;border:1px solid #536993;background:#0d1426;color:#fff;padding:12px;font:14px ui-monospace,SFMono-Regular,Menlo,monospace}button{width:100%;margin-top:18px;border:0;border-radius:10px;background:#2d8cff;color:#fff;padding:14px;font-size:16px;font-weight:800;cursor:pointer}small{display:block;margin-top:14px;color:#aab8d4}</style></head><body><main class="card"><h1>Connect the Maqtomate Test Number</h1><p>Paste the Meta <strong>access code</strong> that you generated in Step&nbsp;1 Testing. It will be verified with Meta, encrypted immediately, and this one-time link will be disabled.</p><div class="note">Do not paste this code into chat, email, or screenshots. Use this secure page only.</div><form method="post" autocomplete="off"><label for="meta_access_token">Meta access code</label><textarea id="meta_access_token" name="meta_access_token" required autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="Paste the code here"></textarea><button type="submit">Securely connect test number</button></form><small>This connection is limited to the Maqtomate owner test number and does not affect your personal WhatsApp account.</small></main></body></html>`;
+}
+
+function ownerTestConnectSuccessHtml() {
+  return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected | Maqtomate</title><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:#0b1020;color:#ecf2ff;font:17px system-ui}.card{max-width:500px;padding:34px;margin:24px;background:#151d33;border:1px solid #2d3b60;border-radius:18px;text-align:center}.ok{font-size:44px;color:#5bea9d}p{color:#c9d4ea;line-height:1.55}</style><main class="card"><div class="ok">✓</div><h1>Test number connected</h1><p>The Meta test credential has been validated and encrypted for the Maqtomate owner test tenant. This one-time link is now disabled.</p><p>Return to WhatsApp and send a fresh message: <strong>Hello Maqtomate</strong>.</p></main>`, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, max-age=0', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' } });
+}
+
+function ownerTestConnectError(message) {
+  return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connection not completed | Maqtomate</title><style>body{margin:0;display:grid;place-items:center;min-height:100vh;background:#0b1020;color:#ecf2ff;font:17px system-ui}.card{max-width:500px;padding:34px;margin:24px;background:#151d33;border:1px solid #7a394b;border-radius:18px;text-align:center}p{color:#f2cbd4;line-height:1.55}</style><main class="card"><h1>Connection not completed</h1><p>${String(message || 'Please try again.').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p><p>Close this page, generate a new Meta access code, and use a fresh secure setup link.</p></main>`, { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store, max-age=0', 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' } });
 }
 
 // Mode → plan label / default monthly fee, per docs/pricing-canonical.md
@@ -1031,6 +1267,8 @@ async function writeAuditLog(env, request, action, clientId, detail) {
     console.error('[AUDIT LOG ERROR]', e);
   }
 }
+
+
 
 // SHA-256 hex digest — used to fingerprint the admin token in audit_logs
 // without ever storing the token itself.

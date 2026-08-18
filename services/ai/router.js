@@ -31,13 +31,13 @@ export function resolveTenantAiContext(tenant, env, { providerName = null, model
   return Object.freeze({
     scope: 'tenant',
     provider,
-    model: modelName || tenant.ai_model_name || tenant.gemini_model || 'gemini-1.5-flash',
+    model: modelName || tenant.ai_model_name || tenant.gemini_model || 'gemini-3.6-flash',
     credentialSource: useTenantByok ? 'tenant_byok' : 'platform_managed',
     apiKey: useTenantByok ? tenantKey : env.GEMINI_API_KEY,
   });
 }
 
-export function resolvePlatformAiContext(env, { providerName = 'gemini', modelName = 'gemini-1.5-flash' } = {}) {
+export function resolvePlatformAiContext(env, { providerName = 'gemini', modelName = 'gemini-3.6-flash' } = {}) {
   const provider = String(providerName).toLowerCase();
   if (provider !== 'gemini') throw safeError('platform_provider_not_supported');
   if (!env.PLATFORM_GEMINI_API_KEY && !env.GEMINI_API_KEY) throw safeError('platform_provider_key_unavailable');
