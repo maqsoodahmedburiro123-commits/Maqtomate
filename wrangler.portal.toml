@@ -2,6 +2,7 @@ name = "maqtomate-portal"
 main = "portal-worker.js"
 compatibility_date = "2026-08-01"
 workers_dev = true
+keep_vars = true
 
 [[d1_databases]]
 binding = "MAQVORA_DB"
