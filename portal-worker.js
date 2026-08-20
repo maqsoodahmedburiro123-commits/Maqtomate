@@ -234,8 +234,9 @@ async function requestMagicLink(request, env, headers, requestId) {
     return json({ ok: true, message: 'If this account is eligible, a secure sign-in link will be sent.' }, 200, headers);
   }
 
-  // Once the Turnstile secret is configured, every email request is challenged — including test-mode owner requests.
-  if (botProtectionEnabled) await verifyTurnstile(body.turnstile_token, request, env);
+  // The configured test-owner address is the single controlled bootstrap path while email delivery
+  // remains limited to the Resend account owner. All other eligible logins remain Turnstile-protected.
+  if (botProtectionEnabled && email !== testOwner) await verifyTurnstile(body.turnstile_token, request, env);
   const user = await env.MAQVORA_DB.prepare('SELECT id, email FROM users WHERE email = ? COLLATE NOCASE AND status = ?').bind(email, 'active').first();
   if (!user) return json({ ok: true, message: 'If this account is eligible, a secure sign-in link will be sent.' }, 200, headers);
 

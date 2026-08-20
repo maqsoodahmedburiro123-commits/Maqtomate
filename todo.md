@@ -1,0 +1,23 @@
+# Maqtomate Production TODO
+
+- [ ] Preserve the owner’s personal WhatsApp number as a test recipient only; never disconnect, migrate, or register it as a Maqtomate Cloud API business sending number.
+- [ ] Complete Meta Step 2 setup using only the existing dedicated Maqtomate test number or a new dedicated business SIM/number.
+- [ ] Confirm dedicated Maqtomate app access to the intended WABA and phone-number asset before repeating a Meta test-message send.
+- [ ] Verify end-to-end dedicated test message delivery: Meta webhook POST → signature check → tenant resolution → Gemini → WhatsApp reply → audit entry.
+- [x] Create and review the complete A-to-Z Maqtomate project status report covering history, fixes, current status, risks, and remaining launch work.
+- [ ] Establish an Owner Test Tenant/Sandbox that can connect the dedicated WhatsApp test number, run text, voice, lead, and reset tests, and block customer activation until all evidence is green.
+- [ ] Implement customer-facing Connect WhatsApp with official Meta Embedded Signup so customers never configure developer dashboards, webhooks, tokens, WABA IDs, phone IDs, Cloudflare, or App Secrets.
+- [ ] Provide an assisted-setup request path that remains safe: customers authorize their own Meta account in the official flow and Maqtomate never requests or handles their passwords, permanent tokens, or one-time passcodes.
+- [ ] Restore access to the owner’s existing Meta account through Meta’s official recovery flow without sharing credentials or creating a duplicate account.
+- [ ] Review and strengthen the owner’s Meta account security after recovery: change the account password, remove unknown sessions, and add an authenticator app plus recovery codes.
+- [ ] Connect the official Meta Developer Tools MCP through owner-authorized OAuth and inspect Maqtomate app, API, compliance, and webhook state before making any configuration change.
+- [ ] Resolve the Meta Developer Tools MCP OAuth client-compatibility failure; use only a Meta-supported OAuth client or a manually authorized official Meta dashboard route, with read access first.
+- [ ] Inspect and repair the dedicated Maqtomate test webhook callback verification and `messages` event subscription after Meta rejected the controlled test message with a webhook warning.
+- [ ] Create and verify an asset inventory that labels every Meta app, WABA, test phone, and webhook as legacy Jaylin, dedicated Maqtomate, or personal test-recipient before any further configuration action.
+- [ ] Determine why the `messages` webhook field is absent from the Maqtomate app’s visible configuration list and verify the correct WABA-level subscription route before enabling it.
+- [ ] Confirm which separate Meta test WABA/test phone belongs to Maqtomate versus legacy Jaylin; Maqtomate business WABA currently shows zero registered phone numbers and must not be assumed to own either test number.
+- [ ] Correct the asset inventory and handoff report: Meta’s Test WhatsApp Business Account is now evidenced as owned by Maqtomate; do not label any other test sender as Jaylin without direct ownership evidence.
+- [ ] Build the Owner Test Tenant: owner-only, payment-exempt, customer-equivalent onboarding and AI Employee test flow using the Maqtomate-owned test sender while preserving the owner’s personal WhatsApp as recipient-only.
+- [ ] Rebuild the Owner Control Center in the Maqtomate GitHub repository and prepare Cloudflare-compatible deployment, removing dependence on the unavailable managed workspace.
+- [ ] Use the verified existing Maqtomate Portal Worker as the Owner Control Center of record; verify owner login and provision the payment-exempt Owner Test Tenant through its secure tenant model.
+- [ ] Diagnose and repair the deployed portal’s owner magic-link delivery so the owner can sign in without relying on the unavailable managed workspace.
