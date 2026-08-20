@@ -25,6 +25,14 @@ import { canConsumeTenantUsage, recordTenantUsage } from './services/usage/usage
  *   - Audit log: every admin mutation goes to D1.audit_logs
  */
 
+async function getOwnerTestTenant(env) {
+  return await env.MAQVORA_DB.prepare(`
+    SELECT id, phone_number_id, active FROM clients
+    WHERE business_name = 'Maqtomate Owner Test Tenant'
+    ORDER BY id DESC LIMIT 1
+  `).first();
+}
+
 export default {
   async fetch(request, env, ctx) {
     // Only the production Pages site and the secure portal may make browser API calls.
@@ -120,23 +128,23 @@ export default {
             }
           }
 
-          const ownerTenant = await env.MAQVORA_DB.prepare('SELECT id FROM clients WHERE id = 1').first();
+          const ownerTenant = await getOwnerTestTenant(env);
           if (!ownerTenant) throw new Error('Owner test tenant is unavailable.');
           await env.MAQVORA_DB.prepare(`
             UPDATE clients
             SET business_name = ?, niche = ?, country = ?, phone_number_id = ?, client_mode = 3, active = 1, updated_at = datetime('now')
-            WHERE id = 1
-          `).bind('Maqtomate Owner Test', 'AI automation demonstration', 'Pakistan', testPhoneNumberId).run();
-          await putTenantSecret(env, 1, 'whatsapp_token', metaAccessToken);
+            WHERE id = ?
+          `).bind('Maqtomate Owner Test Tenant', 'AI automation demonstration', 'Pakistan', testPhoneNumberId, ownerTenant.id).run();
+          await putTenantSecret(env, ownerTenant.id, 'whatsapp_token', metaAccessToken);
           await env.MAQVORA_DB.prepare(`
             INSERT INTO tenant_ai_provider_settings (client_id, provider_name, model_name, credential_mode, active, validation_status, updated_at)
-            VALUES (1, 'gemini', 'gemini-3.6-flash', 'platform_managed', 1, 'valid', datetime('now'))
+            VALUES (?, 'gemini', 'gemini-3.6-flash', 'platform_managed', 1, 'valid', datetime('now'))
             ON CONFLICT(client_id) DO UPDATE SET provider_name = excluded.provider_name, model_name = excluded.model_name,
               credential_mode = excluded.credential_mode, active = excluded.active, validation_status = excluded.validation_status,
               updated_at = excluded.updated_at
-          `).run();
+          `).bind(ownerTenant.id).run();
           await env.MAQVORA_KV?.put(handoffKey, 'used', { expirationTtl: 86400 });
-          await writeAuditLog(env, request, 'owner_test.meta_token_configured', 1, { phone_number_id: testPhoneNumberId, limited_scope_test_credential: limitedScopeTestCredential });
+          await writeAuditLog(env, request, 'owner_test.meta_token_configured', ownerTenant.id, { phone_number_id: testPhoneNumberId, limited_scope_test_credential: limitedScopeTestCredential });
           return ownerTestConnectSuccessHtml();
         } catch (err) {
           console.error('[OWNER TEST CONNECT ERROR]', String(err?.message || err));
@@ -164,10 +172,10 @@ export default {
           throw new Error('Dedicated Maqtomate test identifiers are not configured.');
         }
         subscriptionStage = 'load_tenant';
-        const client = await env.MAQVORA_DB.prepare('SELECT id, phone_number_id FROM clients WHERE id = 1 AND active = 1').first();
+        const client = await getOwnerTestTenant(env);
         if (!client || String(client.phone_number_id) !== testPhoneNumberId) throw new Error('Owner test tenant is not ready.');
         subscriptionStage = 'load_encrypted_token';
-        const metaAccessToken = await getTenantSecret(env, 1, 'whatsapp_token');
+        const metaAccessToken = await getTenantSecret(env, client.id, 'whatsapp_token');
         if (!metaAccessToken) throw new Error('Owner test token is unavailable.');
         subscriptionStage = 'meta_subscribe_request';
         const subscribeResponse = await fetch(`https://graph.facebook.com/v23.0/${wabaId}/subscribed_apps`, {
@@ -185,7 +193,7 @@ export default {
           throw new Error(`Meta subscription request failed (${subscribeResponse.status}).`);
         }
         await env.MAQVORA_KV?.put(syncKey, 'used', { expirationTtl: 86400 });
-        await writeAuditLog(env, request, 'owner_test.meta_webhook_subscribed', 1, { waba_id: wabaId });
+        await writeAuditLog(env, request, 'owner_test.meta_webhook_subscribed', client.id, { waba_id: wabaId });
         return jsonResponse({ success: true, subscription: 'active' }, 200, corsHeaders);
       } catch (err) {
         const safeReason = String(err?.message || err).replace(/Bearer\s+[^\s]+/gi, 'Bearer [redacted]').slice(0, 160);
@@ -740,11 +748,15 @@ export default {
         if (!/^\d{8,15}$/.test(recipient) || !message || message.length > 1000) {
           return jsonResponse({ error: 'A valid test recipient and message are required.' }, 400, corsHeaders);
         }
-        const ownerTenant = await env.MAQVORA_DB.prepare('SELECT id, phone_number_id, active FROM clients WHERE id = 1').first();
+        const ownerTenant = await env.MAQVORA_DB.prepare(`
+          SELECT id, phone_number_id, active FROM clients
+          WHERE business_name = 'Maqtomate Owner Test Tenant'
+          ORDER BY id DESC LIMIT 1
+        `).first();
         if (!ownerTenant || Number(ownerTenant.active) !== 1 || !ownerTenant.phone_number_id) {
           return jsonResponse({ error: 'Owner test tenant is not ready.' }, 409, corsHeaders);
         }
-        const token = await getTenantSecret(env, 1, 'whatsapp_token');
+        const token = await getTenantSecret(env, ownerTenant.id, 'whatsapp_token');
         if (!token) return jsonResponse({ error: 'Owner test WhatsApp credential is unavailable.' }, 409, corsHeaders);
 
         const messageId = await sendWhatsAppText(recipient, message, token, ownerTenant.phone_number_id);

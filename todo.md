@@ -19,10 +19,11 @@
 - [ ] Correct the asset inventory and handoff report: Meta’s Test WhatsApp Business Account is now evidenced as owned by Maqtomate; do not label any other test sender as Jaylin without direct ownership evidence.
 - [ ] Build the Owner Test Tenant: owner-only, payment-exempt, customer-equivalent onboarding and AI Employee test flow using the Maqtomate-owned test sender while preserving the owner’s personal WhatsApp as recipient-only.
 - [ ] Rebuild the Owner Control Center in the Maqtomate GitHub repository and prepare Cloudflare-compatible deployment, removing dependence on the unavailable managed workspace.
-- [ ] Use the verified existing Maqtomate Portal Worker as the Owner Control Center of record; verify owner login and provision the payment-exempt Owner Test Tenant through its secure tenant model.
-- [ ] Diagnose and repair the deployed portal’s owner magic-link delivery so the owner can sign in without relying on the unavailable managed workspace.
+- [x] Use the verified existing Maqtomate Portal Worker as the Owner Control Center of record; verify owner login and provision the payment-exempt Owner Test Tenant through its secure tenant model.
+- [x] Diagnose and repair the deployed portal’s owner magic-link delivery so the owner can sign in without relying on the unavailable managed workspace.
 - [ ] Capture and resolve the remaining live owner magic-link failure after the owner-only Turnstile bypass deployment; distinguish browser, Worker, D1, and Resend delivery failures.
-- [ ] Diagnose and repair the authenticated Owner Control Center dashboard’s permanent loading state after successful owner sign-in.
-- [ ] Capture and resolve the repeated owner sign-in and dashboard-loading failure from live Cloudflare portal runtime evidence without weakening authentication controls.
-- [ ] Perform a full browser-to-Worker-to-D1 production diagnosis of the owner dashboard loading failure, deploy the minimal secure repair, and prove mobile rendering before resuming Owner Test Tenant work.
+- [x] Diagnose and repair the authenticated Owner Control Center dashboard’s permanent loading state after successful owner sign-in.
+- [x] Capture and resolve the repeated owner sign-in and dashboard-loading failure from live Cloudflare portal runtime evidence without weakening authentication controls.
+- [x] Perform a full browser-to-Worker-to-D1 production diagnosis of the owner dashboard loading failure, deploy the minimal secure repair, and prove mobile rendering before resuming Owner Test Tenant work.
 - [ ] Complete the accelerated owner-first launch path: prove portal rendering, provision the payment-exempt Owner Test Tenant, then verify the Maqtomate-owned test sender end-to-end before expanding voice, recording, and CRM capabilities.
+- [x] Provision the payment-exempt Maqtomate Owner Test Tenant with an active customer-admin membership and metadata-only WhatsApp connection state; no personal number or credential was stored.

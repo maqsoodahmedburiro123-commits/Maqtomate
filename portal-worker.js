@@ -25,6 +25,9 @@ const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const MAGIC_LINK_TTL_MINUTES = 15;
 const MAX_PAGE_SIZE = 100;
 const TEST_OWNER_EMAIL = 'maqsoodahmedburiro123@gmail.com';
+const MAQTOMATE_TEST_WABA_ID = '2021200748859223';
+const MAQTOMATE_TEST_PHONE_ID = '1195835330290417';
+const MAQTOMATE_TEST_DISPLAY_NUMBER = '+1 (555) 661-6458';
 const CUSTOMER_ROLES = new Set(['customer_admin', 'customer_member']);
 const PLATFORM_ROLES = new Set(['owner', 'platform_admin', 'support']);
 
@@ -46,6 +49,7 @@ export default {
       }
       if (request.method === 'GET' && path === '/owner') return await ownerConsole(request, env, headers);
       if (request.method === 'POST' && path === '/owner/test-tenant/provision') return await provisionOwnerTestTenant(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/owner/test-tenant/attach-maqtomate-test-sender') return await attachMaqtomateTestSender(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/verify') return await verifyMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/request-link') return await requestMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/logout') return await logout(request, env, headers, requestId);
@@ -658,6 +662,37 @@ async function provisionOwnerTestTenant(request, env, headers, requestId) {
   return redirectOwnerConsole(headers, 'provisioned');
 }
 
+async function attachMaqtomateTestSender(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const testTenant = await ownerTestTenantData(env);
+  if (!testTenant) throw new AccessError('Create the Owner Test Tenant before attaching the Maqtomate test sender.', 409);
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE clients SET phone_number_id = ?, updated_at = datetime('now') WHERE id = ?`).bind(MAQTOMATE_TEST_PHONE_ID, testTenant.id),
+    env.MAQVORA_DB.prepare(`
+      INSERT INTO tenant_whatsapp_connections (client_id, waba_id, phone_number_id, display_phone_number, display_name, connection_status, webhook_status, phone_status, token_status, updated_at)
+      VALUES (?, ?, ?, ?, 'Maqtomate Meta Test Sender', 'PHONE_FOUND', 'WEBHOOK_VERIFIED', 'FOUND', 'NOT_AVAILABLE', datetime('now'))
+      ON CONFLICT(client_id) DO UPDATE SET
+        waba_id = excluded.waba_id, phone_number_id = excluded.phone_number_id,
+        display_phone_number = excluded.display_phone_number, display_name = excluded.display_name,
+        connection_status = 'PHONE_FOUND', webhook_status = 'WEBHOOK_VERIFIED',
+        phone_status = 'FOUND', token_status = CASE WHEN tenant_whatsapp_connections.token_status = 'VALID' THEN 'VALID' ELSE 'NOT_AVAILABLE' END,
+        updated_at = datetime('now')
+    `).bind(testTenant.id, MAQTOMATE_TEST_WABA_ID, MAQTOMATE_TEST_PHONE_ID, MAQTOMATE_TEST_DISPLAY_NUMBER)
+  ]);
+  await auditEvent(env, {
+    actorUserId: access.user.id,
+    actorRole: access.platformRole,
+    clientId: testTenant.id,
+    action: 'owner.test_tenant.maqtomate_test_sender_attached',
+    requestId,
+    request,
+    details: { sender_type: 'maqtomate_owned_meta_test_asset', credential_stored: false }
+  });
+  return redirectOwnerConsole(headers, 'test-sender-attached');
+}
+
 function redirectOwnerConsole(headers, status) {
   const responseHeaders = new Headers(headers);
   responseHeaders.set('Location', `/owner?test-tenant=${encodeURIComponent(status)}`);
@@ -923,8 +958,11 @@ function loginHTML(env) {
 function ownerConsoleHTML(user, overview, testTenant) {
   const safeName = escapeHtml(user.display_name || user.email);
   const metric = value => Number(value || 0).toLocaleString('en-PK');
+  const attachAction = testTenant && testTenant.phone_status !== 'FOUND'
+    ? `<form method="post" action="/owner/test-tenant/attach-maqtomate-test-sender"><button type="submit">Attach Maqtomate-owned test sender</button></form>`
+    : '';
   const tenantStatus = testTenant
-    ? `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>${escapeHtml(testTenant.business_name)}</h2><p class="success">Payment exempt · Active · Customer-equivalent test workspace</p><dl><div><dt>Connection</dt><dd>${escapeHtml(testTenant.connection_status || 'NOT_CONNECTED')}</dd></div><div><dt>Webhook</dt><dd>${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</dd></div><div><dt>Sender phone</dt><dd>${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</dd></div><div><dt>Token state</dt><dd>${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</dd></div></dl><p class="muted">No personal WhatsApp number, token, or secret is stored in this tenant. The next approved action is attaching the Maqtomate-owned Meta test sender through the encrypted connection path.</p></section>`
+    ? `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>${escapeHtml(testTenant.business_name)}</h2><p class="success">Payment exempt · Active · Customer-equivalent test workspace</p><dl><div><dt>Connection</dt><dd>${escapeHtml(testTenant.connection_status || 'NOT_CONNECTED')}</dd></div><div><dt>Webhook</dt><dd>${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</dd></div><div><dt>Sender phone</dt><dd>${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</dd></div><div><dt>Token state</dt><dd>${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</dd></div></dl><p class="muted">No personal WhatsApp number, token, or secret is stored in this tenant. Sender metadata may be attached only after explicit owner approval. A Meta System User token remains required through the encrypted server-side handoff before any message can be sent.</p>${attachAction}</section>`
     : `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>Run Maqtomate like your first customer</h2><p>Create one payment-exempt internal tenant. It follows the customer onboarding model but never creates a billing request, uses no customer credential, and never touches your personal WhatsApp number.</p><form method="post" action="/owner/test-tenant/provision"><button type="submit">Create payment-exempt Owner Test Tenant</button></form></section>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Owner Console</title><style>:root{--deep:#062f24;--brand:#10a86f;--soft:#f3f8f6;--ink:#102720;--muted:#547067;--line:#d8e8e1}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font-family:Inter,system-ui,sans-serif}.bar{padding:16px max(18px,calc((100vw - 1080px)/2));color:#fff;background:linear-gradient(115deg,#063c2c,#0b674b);display:flex;justify-content:space-between;gap:14px;align-items:center}.brand{font-weight:850}.sub{font-size:13px;opacity:.82;margin-left:8px}.out,button{border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:760;cursor:pointer}.out{background:#e3f7ee;color:#075e43}.wrap{max-width:1080px;margin:30px auto;padding:0 18px}.hero{margin-bottom:20px}.hero h1{margin:0 0 8px;font-size:clamp(28px,5vw,42px);letter-spacing:-.045em}.hero p,.muted{color:var(--muted);line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 10px 26px #164b3810}.label,.eyebrow{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.06em}.eyebrow{color:#087950}.value{font-size:28px;font-weight:850;margin-top:7px;letter-spacing:-.04em}h2{margin:8px 0;font-size:22px}button{background:var(--brand);color:#fff;margin-top:8px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}dl div{padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbfdfc}dt{font-size:12px;color:var(--muted)}dd{margin:5px 0 0;font-weight:780;overflow-wrap:anywhere}.success{color:#087950;font-weight:720}@media(max-width:720px){.wrap{margin:20px auto;padding:0 14px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sub{display:none}dl{grid-template-columns:1fr}}@media(max-width:380px){.grid{grid-template-columns:1fr}}</style></head><body><header class="bar"><div><span class="brand">Maqtomate</span><span class="sub">Owner Console</span></div><form method="post" action="/auth/logout"><button class="out" type="submit">Sign out</button></form></header><main class="wrap"><section class="hero"><div class="eyebrow">OWNER-ONLY CONTROL SURFACE</div><h1>Welcome, ${safeName}</h1><p>This console is server-rendered for reliable mobile access. It shows live fleet data without relying on browser-side dashboard initialization.</p></section><section class="grid"><article class="card"><div class="label">Active customers</div><div class="value">${metric(overview.active_tenants)}</div></article><article class="card"><div class="label">Platform users</div><div class="value">${metric(overview.active_users)}</div></article><article class="card"><div class="label">Monthly revenue</div><div class="value">Rs ${metric(overview.monthly_recurring_revenue)}</div></article><article class="card"><div class="label">Errors — 7 days</div><div class="value">${metric(overview.errors_last_7_days)}</div></article></section>${tenantStatus}</main></body></html>`;
 }
