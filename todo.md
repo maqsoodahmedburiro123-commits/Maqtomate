@@ -21,3 +21,7 @@
 - [ ] Rebuild the Owner Control Center in the Maqtomate GitHub repository and prepare Cloudflare-compatible deployment, removing dependence on the unavailable managed workspace.
 - [ ] Use the verified existing Maqtomate Portal Worker as the Owner Control Center of record; verify owner login and provision the payment-exempt Owner Test Tenant through its secure tenant model.
 - [ ] Diagnose and repair the deployed portal’s owner magic-link delivery so the owner can sign in without relying on the unavailable managed workspace.
+- [ ] Capture and resolve the remaining live owner magic-link failure after the owner-only Turnstile bypass deployment; distinguish browser, Worker, D1, and Resend delivery failures.
+- [ ] Diagnose and repair the authenticated Owner Control Center dashboard’s permanent loading state after successful owner sign-in.
+- [ ] Capture and resolve the repeated owner sign-in and dashboard-loading failure from live Cloudflare portal runtime evidence without weakening authentication controls.
+- [ ] Perform a full browser-to-Worker-to-D1 production diagnosis of the owner dashboard loading failure, deploy the minimal secure repair, and prove mobile rendering before resuming Owner Test Tenant work.
