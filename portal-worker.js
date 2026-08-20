@@ -44,6 +44,8 @@ export default {
         const overview = access.platformRole ? await ownerOverviewData(env) : null;
         return htmlResponse(dashboardHTML(access.user, overview, access.platformRole), 200, headers);
       }
+      if (request.method === 'GET' && path === '/owner') return await ownerConsole(request, env, headers);
+      if (request.method === 'POST' && path === '/owner/test-tenant/provision') return await provisionOwnerTestTenant(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/verify') return await verifyMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/request-link') return await requestMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/logout') return await logout(request, env, headers, requestId);
@@ -297,9 +299,10 @@ async function verifyMagicLink(request, env, headers, requestId) {
   `).bind(sessionHash, user.id, ipHash, uaHash).run();
 
   await auditEvent(env, { actorUserId: user.id, action: 'auth.magic_link_login', requestId, request, clientId: magic.client_id || null });
+  const platform = await env.MAQVORA_DB.prepare('SELECT role FROM platform_roles WHERE user_id = ? AND status = ?').bind(user.id, 'active').first();
   const redirectHeaders = new Headers(headers);
   redirectHeaders.set('Set-Cookie', sessionCookie(sessionToken));
-  redirectHeaders.set('Location', '/dashboard');
+  redirectHeaders.set('Location', platform?.role === 'owner' ? '/owner' : '/dashboard');
   return new Response(null, { status: 303, headers: redirectHeaders });
 }
 
@@ -600,6 +603,67 @@ async function ownerOverview(request, env, headers) {
   return json(await ownerOverviewData(env), 200, headers);
 }
 
+async function ownerTestTenantData(env) {
+  return await env.MAQVORA_DB.prepare(`
+    SELECT c.id, c.business_name, c.plan, c.monthly_fee, c.active, c.created_at,
+           twc.connection_status, twc.webhook_status, twc.phone_status, twc.token_status, twc.last_test_at
+    FROM clients c
+    LEFT JOIN tenant_whatsapp_connections twc ON twc.client_id = c.id
+    WHERE c.business_name = 'Maqtomate Owner Test Tenant'
+    LIMIT 1
+  `).first();
+}
+
+async function ownerConsole(request, env, headers) {
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const [overview, testTenant] = await Promise.all([ownerOverviewData(env), ownerTestTenantData(env)]);
+  return htmlResponse(ownerConsoleHTML(access.user, overview, testTenant), 200, headers);
+}
+
+async function provisionOwnerTestTenant(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const existing = await ownerTestTenantData(env);
+  if (existing) return redirectOwnerConsole(headers, 'already-provisioned');
+
+  const marker = `owner-test-pending-${Date.now()}`;
+  const created = await env.MAQVORA_DB.prepare(`
+    INSERT INTO clients (business_name, niche, country, plan, monthly_fee, phone_number_id, whatsapp_token, verify_token, client_mode, active, ai_name, gemini_model)
+    VALUES ('Maqtomate Owner Test Tenant', 'internal_owner_test', 'PK', 'owner_test', 0, ?, '', ?, 3, 1, 'Maqtomate AI Employee', 'gemini-3.6-flash')
+  `).bind(marker, `${marker}-verify`).run();
+  const clientId = created.meta?.last_row_id;
+  if (!clientId) throw new Error('Owner Test Tenant could not be provisioned.');
+
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`
+      INSERT INTO tenant_memberships (user_id, client_id, role, status)
+      VALUES (?, ?, 'customer_admin', 'active')
+    `).bind(access.user.id, clientId),
+    env.MAQVORA_DB.prepare(`
+      INSERT INTO tenant_whatsapp_connections (client_id, connection_status, webhook_status, phone_status, token_status)
+      VALUES (?, 'ONBOARDING_STARTED', 'WEBHOOK_VERIFIED', 'NOT_FOUND', 'NOT_AVAILABLE')
+    `).bind(clientId)
+  ]);
+  await auditEvent(env, {
+    actorUserId: access.user.id,
+    actorRole: access.platformRole,
+    clientId,
+    action: 'owner.test_tenant_provisioned_payment_exempt',
+    requestId,
+    request,
+    details: { payment_exempt: true, credential_mode: 'metadata_only' }
+  });
+  return redirectOwnerConsole(headers, 'provisioned');
+}
+
+function redirectOwnerConsole(headers, status) {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('Location', `/owner?test-tenant=${encodeURIComponent(status)}`);
+  return new Response(null, { status: 303, headers: responseHeaders });
+}
+
 async function ownerTenants(request, env, headers, requestId) {
   const access = await requireSession(request, env);
   requirePlatform(access);
@@ -854,6 +918,15 @@ function loginHTML(env) {
   const turnstileWidget = siteKey ? '<div id="turnstile" style="margin:12px 0"></div>' : '';
   const useTurnstile = siteKey ? 'true' : 'false';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button{width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Enter your approved email address. We will send a one-time sign-in link. No password is stored.</p><form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
+}
+
+function ownerConsoleHTML(user, overview, testTenant) {
+  const safeName = escapeHtml(user.display_name || user.email);
+  const metric = value => Number(value || 0).toLocaleString('en-PK');
+  const tenantStatus = testTenant
+    ? `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>${escapeHtml(testTenant.business_name)}</h2><p class="success">Payment exempt · Active · Customer-equivalent test workspace</p><dl><div><dt>Connection</dt><dd>${escapeHtml(testTenant.connection_status || 'NOT_CONNECTED')}</dd></div><div><dt>Webhook</dt><dd>${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</dd></div><div><dt>Sender phone</dt><dd>${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</dd></div><div><dt>Token state</dt><dd>${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</dd></div></dl><p class="muted">No personal WhatsApp number, token, or secret is stored in this tenant. The next approved action is attaching the Maqtomate-owned Meta test sender through the encrypted connection path.</p></section>`
+    : `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>Run Maqtomate like your first customer</h2><p>Create one payment-exempt internal tenant. It follows the customer onboarding model but never creates a billing request, uses no customer credential, and never touches your personal WhatsApp number.</p><form method="post" action="/owner/test-tenant/provision"><button type="submit">Create payment-exempt Owner Test Tenant</button></form></section>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Owner Console</title><style>:root{--deep:#062f24;--brand:#10a86f;--soft:#f3f8f6;--ink:#102720;--muted:#547067;--line:#d8e8e1}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font-family:Inter,system-ui,sans-serif}.bar{padding:16px max(18px,calc((100vw - 1080px)/2));color:#fff;background:linear-gradient(115deg,#063c2c,#0b674b);display:flex;justify-content:space-between;gap:14px;align-items:center}.brand{font-weight:850}.sub{font-size:13px;opacity:.82;margin-left:8px}.out,button{border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:760;cursor:pointer}.out{background:#e3f7ee;color:#075e43}.wrap{max-width:1080px;margin:30px auto;padding:0 18px}.hero{margin-bottom:20px}.hero h1{margin:0 0 8px;font-size:clamp(28px,5vw,42px);letter-spacing:-.045em}.hero p,.muted{color:var(--muted);line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 10px 26px #164b3810}.label,.eyebrow{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.06em}.eyebrow{color:#087950}.value{font-size:28px;font-weight:850;margin-top:7px;letter-spacing:-.04em}h2{margin:8px 0;font-size:22px}button{background:var(--brand);color:#fff;margin-top:8px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}dl div{padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbfdfc}dt{font-size:12px;color:var(--muted)}dd{margin:5px 0 0;font-weight:780;overflow-wrap:anywhere}.success{color:#087950;font-weight:720}@media(max-width:720px){.wrap{margin:20px auto;padding:0 14px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sub{display:none}dl{grid-template-columns:1fr}}@media(max-width:380px){.grid{grid-template-columns:1fr}}</style></head><body><header class="bar"><div><span class="brand">Maqtomate</span><span class="sub">Owner Console</span></div><form method="post" action="/auth/logout"><button class="out" type="submit">Sign out</button></form></header><main class="wrap"><section class="hero"><div class="eyebrow">OWNER-ONLY CONTROL SURFACE</div><h1>Welcome, ${safeName}</h1><p>This console is server-rendered for reliable mobile access. It shows live fleet data without relying on browser-side dashboard initialization.</p></section><section class="grid"><article class="card"><div class="label">Active customers</div><div class="value">${metric(overview.active_tenants)}</div></article><article class="card"><div class="label">Platform users</div><div class="value">${metric(overview.active_users)}</div></article><article class="card"><div class="label">Monthly revenue</div><div class="value">Rs ${metric(overview.monthly_recurring_revenue)}</div></article><article class="card"><div class="label">Errors — 7 days</div><div class="value">${metric(overview.errors_last_7_days)}</div></article></section>${tenantStatus}</main></body></html>`;
 }
 
 function dashboardHTML(user, initialOwnerOverview = null, platformRole = null) {

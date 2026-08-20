@@ -25,3 +25,4 @@
 - [ ] Diagnose and repair the authenticated Owner Control Center dashboard’s permanent loading state after successful owner sign-in.
 - [ ] Capture and resolve the repeated owner sign-in and dashboard-loading failure from live Cloudflare portal runtime evidence without weakening authentication controls.
 - [ ] Perform a full browser-to-Worker-to-D1 production diagnosis of the owner dashboard loading failure, deploy the minimal secure repair, and prove mobile rendering before resuming Owner Test Tenant work.
+- [ ] Complete the accelerated owner-first launch path: prove portal rendering, provision the payment-exempt Owner Test Tenant, then verify the Maqtomate-owned test sender end-to-end before expanding voice, recording, and CRM capabilities.
