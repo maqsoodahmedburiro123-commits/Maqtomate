@@ -16,6 +16,7 @@ id = "fbf76e29e82e46ef9b19a828ae5b369e"
 [vars]
 TEST_MODE_OWNER_EMAIL = "maqsoodahmedburiro123@gmail.com"
 PORTAL_URL = "https://maqtomate-portal.moviesmaqxanimation.workers.dev"
-TURNSTILE_SITEKEY = "0x4AAAAAAERUn1wYihDSVn1V"
+TURNSTILE_SITEKEY = "0x4AAAAAAERUn1wYihDSIVn1V"
+CORE_WORKER_URL = "https://maqtomate-worker.moviesmaqxanimation.workers.dev"
 
 # No telephone-provider or portal-to-core calling secret is required for the WhatsApp-first product.

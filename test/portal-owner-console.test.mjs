@@ -10,6 +10,6 @@ test('Owner Console is server-rendered and Owner Test Tenant provisioning is pay
   assert.match(source, /Maqtomate Owner Test Tenant/);
   assert.match(source, /'owner_test', 0/);
   assert.match(source, /'customer_admin', 'active'/);
-  assert.match(source, /'ONBOARDING_STARTED', 'WEBHOOK_VERIFIED', 'NOT_FOUND', 'NOT_AVAILABLE'/);
-  assert.match(source, /No personal WhatsApp number, token, or secret is stored in this tenant/);
+  assert.match(source, /'ONBOARDING_STARTED', 'VERIFIED', 'NOT_FOUND', 'NOT_AVAILABLE'/);
+  assert.match(source, /No personal WhatsApp number, token, or secret is displayed or returned by this console/);
 });

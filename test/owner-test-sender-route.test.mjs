@@ -2,13 +2,33 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-test('Owner test sender attachment is explicit, metadata-only, and never uses a hard-coded client ID', () => {
+test('Owner test sender attachment makes the named owner workspace canonical without plaintext credential access', () => {
   const portal = readFileSync(new URL('../portal-worker.js', import.meta.url), 'utf8');
   const worker = readFileSync(new URL('../worker.js', import.meta.url), 'utf8');
   assert.match(portal, /owner\/test-tenant\/attach-maqtomate-test-sender/);
+  assert.match(portal, /owner\/test-tenant\/validate-saved-credential/);
   assert.match(portal, /maqtomate_owned_meta_test_asset/);
-  assert.match(portal, /credential_stored: false/);
+  assert.match(portal, /legacy_owner_test_retired/);
+  assert.match(portal, /encrypted_credential_handoff/);
+  assert.match(portal, /credential_plaintext_accessed: false/);
+  assert.match(portal, /INSERT INTO tenant_secret_envelopes/);
+  assert.match(portal, /DELETE FROM tenant_secret_envelopes/);
+  assert.match(portal, /owner-test-retired-/);
+  assert.match(portal, /ON CONFLICT\(user_id, client_id\)/);
+  assert.match(portal, /connection_status = 'PHONE_FOUND', webhook_status = 'VERIFIED'/);
+  assert.doesNotMatch(portal, /webhook_status = 'WEBHOOK_VERIFIED'/);
+  assert.match(portal, /X-Maqtomate-Internal-Token/);
+  assert.match(portal, /owner\/test-tenant\/renew-meta-token/);
+  assert.match(portal, /type="password"/);
+  assert.match(portal, /credential_plaintext_accessed: false/);
   assert.match(portal, /Maqtomate-owned test sender/);
   assert.match(worker, /business_name = 'Maqtomate Owner Test Tenant'/);
+  assert.match(worker, /path === '\/internal\/owner-test\/credential-health'/);
+  assert.match(worker, /PORTAL_CORE_SHARED_SECRET/);
+  assert.match(worker, /internal\/owner-test\/renew-credential/);
+  assert.match(worker, /owner_test\.credential_renewed/);
+  assert.match(worker, /owner_test\.credential_health_checked/);
   assert.doesNotMatch(worker, /FROM clients WHERE id = 1/);
+  assert.match(worker, /WHERE client_id = \?\n\s*`\)\.bind\(ownerTenant\.id\)/);
+  assert.match(worker, /owner_test\.message_requested', ownerTenant\.id/);
 });

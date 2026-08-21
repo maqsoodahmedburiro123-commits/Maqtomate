@@ -59,6 +59,108 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    // ── INTERNAL OWNER-TEST CREDENTIAL HEALTH ──
+    // This path is callable only by the Portal Worker through a dedicated shared secret. It never
+    // accepts, returns, logs, or decrypts credentials outside the server runtime; it only validates
+    // the already encrypted tenant credential with Meta and returns a coarse readiness state.
+    if (path === '/internal/owner-test/credential-health' && request.method === 'POST') {
+      const internalToken = request.headers.get('X-Maqtomate-Internal-Token') || '';
+      const expectedInternalToken = env.PORTAL_CORE_SHARED_SECRET || '';
+      if (!expectedInternalToken || !timingSafeEqual(internalToken, expectedInternalToken)) {
+        return new Response('Not found', { status: 404 });
+      }
+
+      const ownerTenant = await getOwnerTestTenant(env);
+      if (!ownerTenant || Number(ownerTenant.active) !== 1 || !/^\d{8,30}$/.test(String(ownerTenant.phone_number_id || ''))) {
+        return jsonResponse({ success: false, token_status: 'NOT_AVAILABLE' }, 409, corsHeaders);
+      }
+
+      const storedToken = await getTenantSecret(env, ownerTenant.id, 'whatsapp_token');
+      if (!storedToken) {
+        await env.MAQVORA_DB.prepare(`
+          UPDATE tenant_whatsapp_connections
+          SET token_status = 'NOT_AVAILABLE', last_error_code = 'OWNER_TEST_TOKEN_MISSING', updated_at = datetime('now')
+          WHERE client_id = ?
+        `).bind(ownerTenant.id).run();
+        await writeAuditLog(env, request, 'owner_test.credential_health_checked', ownerTenant.id, { token_status: 'NOT_AVAILABLE' });
+        return jsonResponse({ success: true, token_status: 'NOT_AVAILABLE' }, 200, corsHeaders);
+      }
+
+      let tokenStatus = 'FAILED';
+      let errorCode = 'META_TOKEN_VALIDATION_FAILED';
+      try {
+        const validation = await fetch(`https://graph.facebook.com/v23.0/${ownerTenant.phone_number_id}?fields=id`, {
+          headers: { Authorization: `Bearer ${storedToken}` }
+        });
+        tokenStatus = validation.ok ? 'VALID' : 'INVALID';
+        errorCode = validation.ok ? null : 'META_TOKEN_VALIDATION_FAILED';
+      } catch (_) {
+        // Network/provider failures are intentionally coarse-grained and do not disclose token or provider internals.
+        tokenStatus = 'FAILED';
+        errorCode = 'META_TOKEN_VALIDATION_UNAVAILABLE';
+      }
+
+      await env.MAQVORA_DB.prepare(`
+        UPDATE tenant_whatsapp_connections
+        SET token_status = ?, last_error_code = ?, updated_at = datetime('now')
+        WHERE client_id = ?
+      `).bind(tokenStatus, errorCode, ownerTenant.id).run();
+      await writeAuditLog(env, request, 'owner_test.credential_health_checked', ownerTenant.id, { token_status: tokenStatus });
+      return jsonResponse({ success: true, token_status: tokenStatus }, 200, corsHeaders);
+    }
+
+    // ── INTERNAL OWNER-TEST TOKEN RENEWAL ──
+    // This authenticated bridge accepts a one-time masked Portal form value, validates it with
+    // Meta, then writes only an AES-GCM tenant envelope. It never returns or logs plaintext.
+    if (path === '/internal/owner-test/renew-credential' && request.method === 'POST') {
+      const internalToken = request.headers.get('X-Maqtomate-Internal-Token') || '';
+      const expectedInternalToken = env.PORTAL_CORE_SHARED_SECRET || '';
+      if (!expectedInternalToken || !timingSafeEqual(internalToken, expectedInternalToken)) {
+        return new Response('Not found', { status: 404 });
+      }
+      const body = await request.json().catch(() => null);
+      const replacementToken = String(body?.meta_access_token || '').trim();
+      if (replacementToken.length < 30 || replacementToken.length > 4096) {
+        return jsonResponse({ success: false, token_status: 'INVALID' }, 400, corsHeaders);
+      }
+      const ownerTenant = await getOwnerTestTenant(env);
+      if (!ownerTenant || Number(ownerTenant.active) !== 1 || !/^\d{8,30}$/.test(String(ownerTenant.phone_number_id || ''))) {
+        return jsonResponse({ success: false, token_status: 'NOT_AVAILABLE' }, 409, corsHeaders);
+      }
+      let limitedScopeTestCredential = false;
+      try {
+        const validation = await fetch(`https://graph.facebook.com/v23.0/${ownerTenant.phone_number_id}?fields=id`, {
+          headers: { Authorization: `Bearer ${replacementToken}` }
+        });
+        if (!validation.ok) {
+          const errorPayload = await validation.json().catch(() => null);
+          limitedScopeTestCredential = errorPayload?.error?.code === 100 && errorPayload?.error?.error_subcode === 33;
+          if (!limitedScopeTestCredential) {
+            await writeAuditLog(env, request, 'owner_test.credential_renewal_rejected', ownerTenant.id, { token_status: 'INVALID' });
+            return jsonResponse({ success: false, token_status: 'INVALID' }, 400, corsHeaders);
+          }
+        } else {
+          const phoneInfo = await validation.json().catch(() => ({}));
+          if (String(phoneInfo.id || '') !== String(ownerTenant.phone_number_id)) {
+            await writeAuditLog(env, request, 'owner_test.credential_renewal_rejected', ownerTenant.id, { token_status: 'INVALID' });
+            return jsonResponse({ success: false, token_status: 'INVALID' }, 400, corsHeaders);
+          }
+        }
+      } catch (_) {
+        return jsonResponse({ success: false, token_status: 'FAILED' }, 502, corsHeaders);
+      }
+      await putTenantSecret(env, ownerTenant.id, 'whatsapp_token', replacementToken);
+      await env.MAQVORA_DB.prepare(`
+        UPDATE tenant_whatsapp_connections
+        SET token_status = 'VALID', last_error_code = ?, updated_at = datetime('now')
+        WHERE client_id = ?
+      `).bind(limitedScopeTestCredential ? 'META_TEST_SCOPE_LIMITED' : null, ownerTenant.id).run();
+      await writeAuditLog(env, request, 'owner_test.credential_renewed', ownerTenant.id, {
+        token_status: 'VALID', limited_scope_test_credential: limitedScopeTestCredential
+      });
+      return jsonResponse({ success: true, token_status: 'VALID' }, 200, corsHeaders);
+    }
+
     // ── OWNER TEST CREDENTIAL HANDOFF (single-use, HTTPS-only) ──
     // This prevents the owner from pasting a Meta access token into chat. The submitted
     // token is validated with Meta, AES-GCM encrypted in the tenant vault, then the link
@@ -762,9 +864,9 @@ export default {
         const messageId = await sendWhatsAppText(recipient, message, token, ownerTenant.phone_number_id);
         await env.MAQVORA_DB.prepare(`
           UPDATE tenant_whatsapp_connections SET last_test_at = datetime('now'), updated_at = datetime('now')
-          WHERE client_id = 1
-        `).run().catch(() => null);
-        await writeAuditLog(env, request, 'owner_test.message_requested', 1, { delivery: 'requested' });
+          WHERE client_id = ?
+        `).bind(ownerTenant.id).run().catch(() => null);
+        await writeAuditLog(env, request, 'owner_test.message_requested', ownerTenant.id, { delivery: 'requested' });
         return jsonResponse({ success: true, delivery: 'requested', message_id: messageId ? 'received' : 'unknown' }, 200, corsHeaders);
       }
 

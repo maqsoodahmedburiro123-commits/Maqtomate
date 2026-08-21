@@ -50,6 +50,10 @@ export default {
       if (request.method === 'GET' && path === '/owner') return await ownerConsole(request, env, headers);
       if (request.method === 'POST' && path === '/owner/test-tenant/provision') return await provisionOwnerTestTenant(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/owner/test-tenant/attach-maqtomate-test-sender') return await attachMaqtomateTestSender(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/owner/test-tenant/validate-saved-credential') return await validateOwnerTestCredential(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/owner/test-tenant/renew-meta-token') return await renewOwnerTestCredential(request, env, headers, requestId);
+      if (request.method === 'GET' && path === '/auth/google') return await beginGoogleLogin(request, env, headers);
+      if (request.method === 'GET' && path === '/auth/google/callback') return await completeGoogleLogin(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/verify') return await verifyMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/request-link') return await requestMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/logout') return await logout(request, env, headers, requestId);
@@ -143,6 +147,22 @@ function sessionCookie(token) {
 
 function clearSessionCookie() {
   return 'mt_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+}
+
+function oauthTransientCookie(name, value, seconds = 600) {
+  return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${seconds}`;
+}
+
+function clearOAuthTransientCookie(name) {
+  return `${name}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
+}
+
+function portalBaseUrl(request, env) {
+  return (env.PORTAL_URL || new URL(request.url).origin).replace(/\/$/, '');
+}
+
+function googleCallbackUrl(request, env) {
+  return `${portalBaseUrl(request, env)}/auth/google/callback`;
 }
 
 function base64Url(bytes) {
@@ -247,6 +267,13 @@ async function requestMagicLink(request, env, headers, requestId) {
   const user = await env.MAQVORA_DB.prepare('SELECT id, email FROM users WHERE email = ? COLLATE NOCASE AND status = ?').bind(email, 'active').first();
   if (!user) return json({ ok: true, message: 'If this account is eligible, a secure sign-in link will be sent.' }, 200, headers);
 
+  // A new request always supersedes any earlier unused login link for the same address.
+  // This eliminates stale-link confusion on mobile without weakening the 15-minute TTL.
+  await env.MAQVORA_DB.prepare(`
+    UPDATE magic_link_tokens SET expires_at = datetime('now')
+    WHERE email = ? AND purpose = 'login' AND used_at IS NULL AND expires_at > datetime('now')
+  `).bind(email).run();
+
   const token = randomToken();
   const tokenHash = await sha256(token);
   await env.MAQVORA_DB.prepare(`
@@ -256,9 +283,157 @@ async function requestMagicLink(request, env, headers, requestId) {
 
   const portalUrl = env.PORTAL_URL || new URL(request.url).origin;
   const link = `${portalUrl}/auth/verify?token=${encodeURIComponent(token)}`;
-  await sendMagicLinkEmail(env, email, link);
-  await auditEvent(env, { actorUserId: user.id, action: 'auth.magic_link_requested', requestId, request });
+  try {
+    await sendMagicLinkEmail(env, email, link);
+    await auditEvent(env, {
+      actorUserId: user.id,
+      action: 'auth.magic_link_requested',
+      requestId,
+      request,
+      details: { provider: 'resend', delivery_accepted: true }
+    });
+  } catch (error) {
+    // Do not leave a valid token behind when the provider rejects or cannot accept delivery.
+    // The browser receives the same generic response in order to prevent account enumeration.
+    await env.MAQVORA_DB.prepare(`
+      UPDATE magic_link_tokens SET expires_at = datetime('now')
+      WHERE token_hash = ? AND used_at IS NULL
+    `).bind(tokenHash).run().catch(() => {});
+    await auditEvent(env, {
+      actorUserId: user.id,
+      action: 'auth.magic_link_delivery_failed',
+      requestId,
+      request,
+      details: { provider: 'resend', delivery_accepted: false }
+    }).catch(() => {});
+  }
   return json({ ok: true, message: 'If this account is eligible, a secure sign-in link will be sent.' }, 200, headers);
+}
+
+async function beginGoogleLogin(request, env, headers) {
+  if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
+    throw new AccessError('Google sign-in is not configured yet.', 503);
+  }
+  const state = randomToken(32);
+  const nonce = randomToken(32);
+  const authorizationUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authorizationUrl.searchParams.set('client_id', env.GOOGLE_OAUTH_CLIENT_ID);
+  authorizationUrl.searchParams.set('redirect_uri', googleCallbackUrl(request, env));
+  authorizationUrl.searchParams.set('response_type', 'code');
+  authorizationUrl.searchParams.set('scope', 'openid email profile');
+  authorizationUrl.searchParams.set('state', state);
+  authorizationUrl.searchParams.set('nonce', nonce);
+  authorizationUrl.searchParams.set('prompt', 'select_account');
+  authorizationUrl.searchParams.set('access_type', 'online');
+
+  const redirectHeaders = new Headers(headers);
+  redirectHeaders.set('Location', authorizationUrl.toString());
+  redirectHeaders.append('Set-Cookie', oauthTransientCookie('mt_google_state', state));
+  redirectHeaders.append('Set-Cookie', oauthTransientCookie('mt_google_nonce', nonce));
+  return new Response(null, { status: 302, headers: redirectHeaders });
+}
+
+async function completeGoogleLogin(request, env, headers, requestId) {
+  if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
+    throw new AccessError('Google sign-in is not configured yet.', 503);
+  }
+  const url = new URL(request.url);
+  const state = url.searchParams.get('state') || '';
+  const code = url.searchParams.get('code') || '';
+  const expectedState = cookieValue(request, 'mt_google_state') || '';
+  const nonce = cookieValue(request, 'mt_google_nonce') || '';
+  if (!state || !code || !expectedState || !nonce || !(await safeHashEquals(state, expectedState))) {
+    throw new AccessError('Google sign-in verification failed. Please start again.', 400);
+  }
+
+  const exchange = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_OAUTH_CLIENT_ID,
+      client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+      redirect_uri: googleCallbackUrl(request, env),
+      grant_type: 'authorization_code'
+    }).toString()
+  });
+  if (!exchange.ok) throw new AccessError('Google sign-in could not be completed. Please start again.', 502);
+  const tokenSet = await exchange.json().catch(() => ({}));
+  const claims = await verifyGoogleIdToken(tokenSet.id_token, env.GOOGLE_OAUTH_CLIENT_ID, nonce);
+  const user = await env.MAQVORA_DB.prepare(`
+    SELECT u.id, u.email, u.display_name, pr.role
+    FROM users u JOIN platform_roles pr ON pr.user_id = u.id
+    WHERE u.email = ? COLLATE NOCASE AND u.status = 'active' AND pr.status = 'active'
+      AND pr.role IN ('owner', 'platform_admin')
+    LIMIT 1
+  `).bind(claims.email).first();
+  if (!user) {
+    await auditEvent(env, { action: 'auth.google_login_denied', requestId, request, details: { reason: 'not_allowlisted' } });
+    throw new AccessError('This Google account is not approved for Maqtomate owner access.', 403);
+  }
+
+  const sessionToken = randomToken(48);
+  const sessionHash = await sha256(sessionToken);
+  const ipHash = await sha256(request.headers.get('CF-Connecting-IP') || 'unknown');
+  const uaHash = await sha256(request.headers.get('User-Agent') || 'unknown');
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE users SET email_verified_at = COALESCE(email_verified_at, datetime('now')), last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).bind(user.id),
+    env.MAQVORA_DB.prepare(`INSERT INTO user_sessions (token_hash, user_id, expires_at, ip_hash, user_agent_hash) VALUES (?, ?, datetime('now', '+12 hours'), ?, ?)`).bind(sessionHash, user.id, ipHash, uaHash)
+  ]);
+  await auditEvent(env, { actorUserId: user.id, actorRole: user.role, action: 'auth.google_login', requestId, request });
+
+  const redirectHeaders = new Headers(headers);
+  redirectHeaders.set('Set-Cookie', sessionCookie(sessionToken));
+  redirectHeaders.append('Set-Cookie', clearOAuthTransientCookie('mt_google_state'));
+  redirectHeaders.append('Set-Cookie', clearOAuthTransientCookie('mt_google_nonce'));
+  redirectHeaders.set('Location', user.role === 'owner' ? '/owner' : '/dashboard');
+  return new Response(null, { status: 303, headers: redirectHeaders });
+}
+
+async function safeHashEquals(left, right) {
+  if (!left || !right || left.length !== right.length) return false;
+  return (await sha256(left)) === (await sha256(right));
+}
+
+function decodeJwtSegment(segment) {
+  const padded = segment.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(segment.length / 4) * 4, '=');
+  return JSON.parse(atob(padded));
+}
+
+function decodeJwtBytes(segment) {
+  const padded = segment.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(segment.length / 4) * 4, '=');
+  const binary = atob(padded);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function verifyGoogleIdToken(idToken, clientId, expectedNonce) {
+  if (typeof idToken !== 'string') throw new AccessError('Google did not return an identity token.', 502);
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw new AccessError('Google identity token was malformed.', 502);
+  const [headerSegment, payloadSegment, signatureSegment] = parts;
+  const header = decodeJwtSegment(headerSegment);
+  const claims = decodeJwtSegment(payloadSegment);
+  if (header.alg !== 'RS256' || !header.kid) throw new AccessError('Google identity token algorithm was not accepted.', 502);
+  const keyResponse = await fetch('https://www.googleapis.com/oauth2/v3/certs');
+  if (!keyResponse.ok) throw new AccessError('Google identity keys were unavailable. Please try again.', 503);
+  const keySet = await keyResponse.json().catch(() => ({}));
+  const jwk = (keySet.keys || []).find(key => key.kid === header.kid && key.kty === 'RSA');
+  if (!jwk) throw new AccessError('Google identity key could not be verified. Please start again.', 502);
+  const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+  const validSignature = await crypto.subtle.verify(
+    { name: 'RSASSA-PKCS1-v1_5' },
+    key,
+    decodeJwtBytes(signatureSegment),
+    new TextEncoder().encode(`${headerSegment}.${payloadSegment}`)
+  );
+  const now = Math.floor(Date.now() / 1000);
+  const acceptedIssuer = claims.iss === 'https://accounts.google.com' || claims.iss === 'accounts.google.com';
+  const audienceMatches = Array.isArray(claims.aud) ? claims.aud.includes(clientId) : claims.aud === clientId;
+  const authorizedPartyMatches = !Array.isArray(claims.aud) || !claims.azp || claims.azp === clientId;
+  if (!validSignature || !acceptedIssuer || !audienceMatches || !authorizedPartyMatches || !claims.exp || Number(claims.exp) <= now || !claims.nonce || !(await safeHashEquals(claims.nonce, expectedNonce)) || claims.email_verified !== true) {
+    throw new AccessError('Google identity verification failed. Please start again.', 401);
+  }
+  return { email: normalizeEmail(claims.email), subject: String(claims.sub || '') };
 }
 
 async function verifyMagicLink(request, env, headers, requestId) {
@@ -647,7 +822,7 @@ async function provisionOwnerTestTenant(request, env, headers, requestId) {
     `).bind(access.user.id, clientId),
     env.MAQVORA_DB.prepare(`
       INSERT INTO tenant_whatsapp_connections (client_id, connection_status, webhook_status, phone_status, token_status)
-      VALUES (?, 'ONBOARDING_STARTED', 'WEBHOOK_VERIFIED', 'NOT_FOUND', 'NOT_AVAILABLE')
+      VALUES (?, 'ONBOARDING_STARTED', 'VERIFIED', 'NOT_FOUND', 'NOT_AVAILABLE')
     `).bind(clientId)
   ]);
   await auditEvent(env, {
@@ -668,19 +843,67 @@ async function attachMaqtomateTestSender(request, env, headers, requestId) {
   requirePlatform(access, ['owner']);
   const testTenant = await ownerTestTenantData(env);
   if (!testTenant) throw new AccessError('Create the Owner Test Tenant before attaching the Maqtomate test sender.', 409);
-  await env.MAQVORA_DB.batch([
-    env.MAQVORA_DB.prepare(`UPDATE clients SET phone_number_id = ?, updated_at = datetime('now') WHERE id = ?`).bind(MAQTOMATE_TEST_PHONE_ID, testTenant.id),
+
+  // The first manual setup stored the Maqtomate test sender and encrypted test credentials on a
+  // legacy record. The current owner-visible workspace is the named Owner Test Tenant, so this
+  // controlled, owner-only handoff makes that record canonical. Ciphertext is moved directly in
+  // D1; the Portal Worker never reads, decrypts, logs, or returns any credential value.
+  const legacySenderOwner = await env.MAQVORA_DB.prepare(`
+    SELECT id, business_name FROM clients
+    WHERE phone_number_id = ? AND id != ?
+    LIMIT 1
+  `).bind(MAQTOMATE_TEST_PHONE_ID, testTenant.id).first();
+  if (legacySenderOwner && legacySenderOwner.business_name !== 'Maqtomate Owner Test') {
+    throw new AccessError('The Maqtomate test sender is assigned to an unexpected tenant. No changes were made.', 409);
+  }
+
+  const statements = [];
+  if (legacySenderOwner) {
+    const retiredPhoneMarker = `owner-test-retired-${legacySenderOwner.id}-${Date.now()}`;
+    statements.push(
+      env.MAQVORA_DB.prepare(`
+        INSERT INTO tenant_secret_envelopes (client_id, secret_name, ciphertext, iv, key_version, created_at, updated_at)
+        SELECT ?, secret_name, ciphertext, iv, key_version, created_at, datetime('now')
+        FROM tenant_secret_envelopes
+        WHERE client_id = ? AND secret_name IN ('whatsapp_token', 'gemini_api_key', 'verify_token')
+        ON CONFLICT(client_id, secret_name) DO UPDATE SET
+          ciphertext = excluded.ciphertext, iv = excluded.iv, key_version = excluded.key_version, updated_at = excluded.updated_at
+      `).bind(testTenant.id, legacySenderOwner.id),
+      env.MAQVORA_DB.prepare(`
+        DELETE FROM tenant_secret_envelopes
+        WHERE client_id = ? AND secret_name IN ('whatsapp_token', 'gemini_api_key', 'verify_token')
+      `).bind(legacySenderOwner.id),
+      env.MAQVORA_DB.prepare(`
+        UPDATE clients
+        SET phone_number_id = ?, active = 0, updated_at = datetime('now')
+        WHERE id = ?
+      `).bind(retiredPhoneMarker, legacySenderOwner.id)
+    );
+  }
+
+  statements.push(
+    env.MAQVORA_DB.prepare(`
+      UPDATE clients SET phone_number_id = ?, active = 1, updated_at = datetime('now') WHERE id = ?
+    `).bind(MAQTOMATE_TEST_PHONE_ID, testTenant.id),
     env.MAQVORA_DB.prepare(`
       INSERT INTO tenant_whatsapp_connections (client_id, waba_id, phone_number_id, display_phone_number, display_name, connection_status, webhook_status, phone_status, token_status, updated_at)
-      VALUES (?, ?, ?, ?, 'Maqtomate Meta Test Sender', 'PHONE_FOUND', 'WEBHOOK_VERIFIED', 'FOUND', 'NOT_AVAILABLE', datetime('now'))
+      VALUES (?, ?, ?, ?, 'Maqtomate Meta Test Sender', 'PHONE_FOUND', 'VERIFIED', 'FOUND', 'NOT_AVAILABLE', datetime('now'))
       ON CONFLICT(client_id) DO UPDATE SET
         waba_id = excluded.waba_id, phone_number_id = excluded.phone_number_id,
         display_phone_number = excluded.display_phone_number, display_name = excluded.display_name,
-        connection_status = 'PHONE_FOUND', webhook_status = 'WEBHOOK_VERIFIED',
+        connection_status = 'PHONE_FOUND', webhook_status = 'VERIFIED',
         phone_status = 'FOUND', token_status = CASE WHEN tenant_whatsapp_connections.token_status = 'VALID' THEN 'VALID' ELSE 'NOT_AVAILABLE' END,
         updated_at = datetime('now')
     `).bind(testTenant.id, MAQTOMATE_TEST_WABA_ID, MAQTOMATE_TEST_PHONE_ID, MAQTOMATE_TEST_DISPLAY_NUMBER)
-  ]);
+  );
+  // A customer-admin membership is required for the Owner to use this exact tenant through the
+  // same customer dashboard paths that future customers will receive.
+  statements.push(env.MAQVORA_DB.prepare(`
+    INSERT INTO tenant_memberships (user_id, client_id, role, status)
+    VALUES (?, ?, 'customer_admin', 'active')
+    ON CONFLICT(user_id, client_id) DO UPDATE SET role = 'customer_admin', status = 'active', updated_at = datetime('now')
+  `).bind(access.user.id, testTenant.id));
+  await env.MAQVORA_DB.batch(statements);
   await auditEvent(env, {
     actorUserId: access.user.id,
     actorRole: access.platformRole,
@@ -688,9 +911,90 @@ async function attachMaqtomateTestSender(request, env, headers, requestId) {
     action: 'owner.test_tenant.maqtomate_test_sender_attached',
     requestId,
     request,
-    details: { sender_type: 'maqtomate_owned_meta_test_asset', credential_stored: false }
+    details: {
+      sender_type: 'maqtomate_owned_meta_test_asset',
+      legacy_owner_test_retired: Boolean(legacySenderOwner),
+      encrypted_credential_handoff: Boolean(legacySenderOwner),
+      credential_plaintext_accessed: false
+    }
   });
   return redirectOwnerConsole(headers, 'test-sender-attached');
+}
+
+async function validateOwnerTestCredential(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const testTenant = await ownerTestTenantData(env);
+  if (!testTenant || testTenant.phone_status !== 'FOUND') {
+    throw new AccessError('Attach the Maqtomate-owned test sender before checking its credential.', 409);
+  }
+  const internalSecret = String(env.CORE_WORKER_SHARED_SECRET || '');
+  if (!internalSecret) throw new AccessError('The secure activation bridge is not configured.', 503);
+  const coreUrl = String(env.CORE_WORKER_URL || 'https://maqtomate-worker.moviesmaqxanimation.workers.dev').replace(/\/$/, '');
+  let result = null;
+  try {
+    const response = await fetch(`${coreUrl}/internal/owner-test/credential-health`, {
+      method: 'POST',
+      headers: { 'X-Maqtomate-Internal-Token': internalSecret }
+    });
+    result = await response.json().catch(() => null);
+    if (!response.ok || !result?.token_status) throw new Error('Credential health response unavailable.');
+  } catch (_) {
+    throw new AccessError('The credential check is temporarily unavailable. No credential was changed.', 502);
+  }
+  const tokenStatus = ['VALID', 'INVALID', 'FAILED', 'NOT_AVAILABLE'].includes(result.token_status) ? result.token_status : 'FAILED';
+  await auditEvent(env, {
+    actorUserId: access.user.id,
+    actorRole: access.platformRole,
+    clientId: testTenant.id,
+    action: 'owner.test_tenant.saved_credential_validated',
+    requestId,
+    request,
+    details: { token_status: tokenStatus, credential_plaintext_accessed: false }
+  });
+  return redirectOwnerConsole(headers, `credential-${tokenStatus.toLowerCase()}`);
+}
+
+async function renewOwnerTestCredential(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const testTenant = await ownerTestTenantData(env);
+  if (!testTenant || testTenant.phone_status !== 'FOUND') {
+    throw new AccessError('Attach the Maqtomate-owned test sender before renewing its credential.', 409);
+  }
+  const form = await request.formData();
+  const replacementToken = String(form.get('meta_access_token') || '').trim();
+  if (replacementToken.length < 30 || replacementToken.length > 4096) {
+    throw new AccessError('Enter a newly generated Meta access token.', 400);
+  }
+  const internalSecret = String(env.CORE_WORKER_SHARED_SECRET || '');
+  if (!internalSecret) throw new AccessError('The secure activation bridge is not configured.', 503);
+  const coreUrl = String(env.CORE_WORKER_URL || 'https://maqtomate-worker.moviesmaqxanimation.workers.dev').replace(/\/$/, '');
+  let result = null;
+  try {
+    const response = await fetch(`${coreUrl}/internal/owner-test/renew-credential`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Maqtomate-Internal-Token': internalSecret },
+      body: JSON.stringify({ meta_access_token: replacementToken })
+    });
+    result = await response.json().catch(() => null);
+    if (!result?.token_status) throw new Error('Credential renewal response unavailable.');
+  } catch (_) {
+    throw new AccessError('The secure credential renewal is temporarily unavailable. No credential was changed.', 502);
+  }
+  const tokenStatus = ['VALID', 'INVALID', 'FAILED', 'NOT_AVAILABLE'].includes(result.token_status) ? result.token_status : 'FAILED';
+  await auditEvent(env, {
+    actorUserId: access.user.id,
+    actorRole: access.platformRole,
+    clientId: testTenant.id,
+    action: 'owner.test_tenant.credential_renewal_requested',
+    requestId,
+    request,
+    details: { token_status: tokenStatus, credential_plaintext_accessed: false }
+  });
+  return redirectOwnerConsole(headers, `credential-renewal-${tokenStatus.toLowerCase()}`);
 }
 
 function redirectOwnerConsole(headers, status) {
@@ -941,6 +1245,7 @@ async function sendMagicLinkEmail(env, email, link, customSubject = 'Your secure
     body: JSON.stringify({ from, to: [email], subject, html })
   });
   if (!response.ok) throw new Error(`Email delivery failed with status ${response.status}.`);
+  return { accepted: true };
 }
 
 function escapeHtml(value) {
@@ -952,7 +1257,8 @@ function loginHTML(env) {
   const turnstileScript = siteKey ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>' : '';
   const turnstileWidget = siteKey ? '<div id="turnstile" style="margin:12px 0"></div>' : '';
   const useTurnstile = siteKey ? 'true' : 'false';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button{width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Enter your approved email address. We will send a one-time sign-in link. No password is stored.</p><form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
+  const googleButton = env.GOOGLE_OAUTH_CLIENT_ID ? '<a class="google" href="/auth/google">Continue with Google — Owner access</a><div class="divider">or use a one-time email link</div>' : '';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button,.google{box-sizing:border-box;display:block;width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none}.google{background:#fff;color:#1f2937;border:1px solid #cbd5e1}.divider{margin:18px 0 4px;color:#8ca79f;text-align:center;font-size:13px}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Owner access uses Google Sign-In once configured. Customer access can use an approved one-time email link. No password is stored by Maqtomate.</p>${googleButton}<form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
 }
 
 function ownerConsoleHTML(user, overview, testTenant) {
@@ -961,8 +1267,14 @@ function ownerConsoleHTML(user, overview, testTenant) {
   const attachAction = testTenant && testTenant.phone_status !== 'FOUND'
     ? `<form method="post" action="/owner/test-tenant/attach-maqtomate-test-sender"><button type="submit">Attach Maqtomate-owned test sender</button></form>`
     : '';
+  const credentialAction = testTenant && testTenant.phone_status === 'FOUND' && testTenant.token_status !== 'VALID'
+    ? `<form method="post" action="/owner/test-tenant/validate-saved-credential"><button type="submit">Check saved bot credential</button></form>`
+    : '';
+  const renewalAction = testTenant && testTenant.phone_status === 'FOUND' && testTenant.token_status !== 'VALID'
+    ? `<form method="post" action="/owner/test-tenant/renew-meta-token" autocomplete="off"><label for="meta-access-token">Renew dedicated test credential</label><input id="meta-access-token" name="meta_access_token" type="password" autocomplete="off" spellcheck="false" minlength="30" maxlength="4096" required><button type="submit">Validate and securely save new Meta token</button><p class="muted">The value is masked and used once. It is validated and encrypted server-side, never displayed again.</p></form>`
+    : '';
   const tenantStatus = testTenant
-    ? `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>${escapeHtml(testTenant.business_name)}</h2><p class="success">Payment exempt · Active · Customer-equivalent test workspace</p><dl><div><dt>Connection</dt><dd>${escapeHtml(testTenant.connection_status || 'NOT_CONNECTED')}</dd></div><div><dt>Webhook</dt><dd>${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</dd></div><div><dt>Sender phone</dt><dd>${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</dd></div><div><dt>Token state</dt><dd>${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</dd></div></dl><p class="muted">No personal WhatsApp number, token, or secret is stored in this tenant. Sender metadata may be attached only after explicit owner approval. A Meta System User token remains required through the encrypted server-side handoff before any message can be sent.</p>${attachAction}</section>`
+    ? `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>${escapeHtml(testTenant.business_name)}</h2><p class="success">Payment exempt · Active · Customer-equivalent test workspace</p><dl><div><dt>Connection</dt><dd>${escapeHtml(testTenant.connection_status || 'NOT_CONNECTED')}</dd></div><div><dt>Webhook</dt><dd>${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</dd></div><div><dt>Sender phone</dt><dd>${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</dd></div><div><dt>Token state</dt><dd>${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</dd></div></dl><p class="muted">No personal WhatsApp number, token, or secret is displayed or returned by this console. The credential check validates only the encrypted server-side Maqtomate test credential before any message can be sent.</p>${attachAction}${credentialAction}${renewalAction}</section>`
     : `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>Run Maqtomate like your first customer</h2><p>Create one payment-exempt internal tenant. It follows the customer onboarding model but never creates a billing request, uses no customer credential, and never touches your personal WhatsApp number.</p><form method="post" action="/owner/test-tenant/provision"><button type="submit">Create payment-exempt Owner Test Tenant</button></form></section>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Owner Console</title><style>:root{--deep:#062f24;--brand:#10a86f;--soft:#f3f8f6;--ink:#102720;--muted:#547067;--line:#d8e8e1}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font-family:Inter,system-ui,sans-serif}.bar{padding:16px max(18px,calc((100vw - 1080px)/2));color:#fff;background:linear-gradient(115deg,#063c2c,#0b674b);display:flex;justify-content:space-between;gap:14px;align-items:center}.brand{font-weight:850}.sub{font-size:13px;opacity:.82;margin-left:8px}.out,button{border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:760;cursor:pointer}.out{background:#e3f7ee;color:#075e43}.wrap{max-width:1080px;margin:30px auto;padding:0 18px}.hero{margin-bottom:20px}.hero h1{margin:0 0 8px;font-size:clamp(28px,5vw,42px);letter-spacing:-.045em}.hero p,.muted{color:var(--muted);line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 10px 26px #164b3810}.label,.eyebrow{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.06em}.eyebrow{color:#087950}.value{font-size:28px;font-weight:850;margin-top:7px;letter-spacing:-.04em}h2{margin:8px 0;font-size:22px}button{background:var(--brand);color:#fff;margin-top:8px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}dl div{padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbfdfc}dt{font-size:12px;color:var(--muted)}dd{margin:5px 0 0;font-weight:780;overflow-wrap:anywhere}.success{color:#087950;font-weight:720}@media(max-width:720px){.wrap{margin:20px auto;padding:0 14px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sub{display:none}dl{grid-template-columns:1fr}}@media(max-width:380px){.grid{grid-template-columns:1fr}}</style></head><body><header class="bar"><div><span class="brand">Maqtomate</span><span class="sub">Owner Console</span></div><form method="post" action="/auth/logout"><button class="out" type="submit">Sign out</button></form></header><main class="wrap"><section class="hero"><div class="eyebrow">OWNER-ONLY CONTROL SURFACE</div><h1>Welcome, ${safeName}</h1><p>This console is server-rendered for reliable mobile access. It shows live fleet data without relying on browser-side dashboard initialization.</p></section><section class="grid"><article class="card"><div class="label">Active customers</div><div class="value">${metric(overview.active_tenants)}</div></article><article class="card"><div class="label">Platform users</div><div class="value">${metric(overview.active_users)}</div></article><article class="card"><div class="label">Monthly revenue</div><div class="value">Rs ${metric(overview.monthly_recurring_revenue)}</div></article><article class="card"><div class="label">Errors — 7 days</div><div class="value">${metric(overview.errors_last_7_days)}</div></article></section>${tenantStatus}</main></body></html>`;
 }

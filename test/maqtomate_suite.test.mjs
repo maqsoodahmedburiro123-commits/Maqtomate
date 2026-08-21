@@ -126,7 +126,8 @@ test('owner test message route avoids audit logging recipient or message content
   const testRoute = start === -1 || end === -1 ? '' : workerSource.slice(start, end);
   assert.match(testRoute, /sendWhatsAppText\(recipient, message, token/);
   assert.match(testRoute, /owner_test\.message_requested/);
-  assert.match(testRoute, /writeAuditLog\(env, request, 'owner_test\.message_requested', 1, \{ delivery: 'requested' \}\)/);
+  assert.match(testRoute, /writeAuditLog\(env, request, 'owner_test\.message_requested', ownerTenant\.id, \{ delivery: 'requested' \}\)/);
+  assert.doesNotMatch(testRoute, /WHERE client_id = 1|message_requested', 1/);
 });
 
 test('owner health route provides component states without disclosing secret values', () => {
