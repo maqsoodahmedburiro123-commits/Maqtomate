@@ -13,6 +13,11 @@
 | Wati — Homepage | https://www.wati.io/ | Lifecycle-led Marketing / Sales / Support organization, AI capability sub-products, proof-of-work interface patterns, integrations, security/reliability modules, and role-specific CTA paths. |
 | Respond.io — Homepage | https://respond.io/ | Customer-lifecycle narrative (capture → convert → retain), team inbox positioning, AI agent task framing, interactive-tour CTA, product proof, and trust architecture. |
 | Manychat — WhatsApp | https://manychat.com/product/whatsapp | Pain-before/after contrast, workflow examples, clear WhatsApp-specific FAQ, and conversion-oriented entry-point framing. |
+| Meta — WhatsApp Business Platform | https://developers.facebook.com/documentation/business-messaging/whatsapp/overview | Official platform scope: Cloud API messaging/calling, templates, webhooks, Business Management API, and the documented customer-onboarding Embedded Signup route. |
+| Twilio — WhatsApp | https://www.twilio.com/en-us/messaging/channels/whatsapp | Developer-led modularity, customer-journey use-case framing, consent-aware calling concepts, and an explicit text-to-call context-continuity pattern. |
+| Infobip — WhatsApp API provider guide | https://www.infobip.com/blog/best-whatsapp-api | Clear buyer education differentiating personal app, Business app, and Business API; provider-evaluation criteria around automation, integrations, analytics, security, and onboarding. |
+| Chatwoot — WhatsApp Business | https://www.chatwoot.com/features/whatsapp-for-business | Official-API trust positioning, shared-inbox primitives, approved-template explanation, agent assignment, private notes, labels, operational automation, and human-handoff framing. |
+| Chatwoot — WhatsApp Embedded Signup | https://developers.chatwoot.com/self-hosted/configuration/features/integrations/whatsapp-embedded-signup | Reference implementation checklist for a future secure Embedded Signup: server-only app settings, official OAuth, automated webhooks/phone setup, progress feedback, and error guidance. |
 | Trengo — WhatsApp | https://trengo.com/whatsapp | URL was no longer available at review time; it must not be treated as a current page-template reference. |
 
 ## Original Maqtomate positioning decision
@@ -36,6 +41,20 @@ Maqtomate should not be marketed as another chatbot builder. The customer websit
 - Public CTAs will distinguish **"See the AI Employee workflow"** from **"Talk to an automation specialist"**. A self-serve "Connect WhatsApp" step must remain an implementation placeholder until Meta Embedded Signup is complete and verified.
 - The public site will use a capability-led product demo and consent-aware conversion journey, but will not claim specific response-time, conversion, customer-count, uptime, rating, or ROI figures without first-party evidence.
 - Reference pages will retain the useful operational journey pattern (capture → qualify → route → follow-up → report) while preserving Maqtomate's official-API-only and managed-onboarding position.
+
+## Public-research expansion — 23 August 2026
+
+Public source research confirms a consistent category pattern: established platforms frame WhatsApp around the full customer journey rather than a standalone bot. Wati structures this as marketing, sales, and support; Respond.io emphasizes team context, agent collaboration, lifecycle stages, integrations, and measurement; Manychat uses a strong pain-to-outcome narrative; Landbot demonstrates the value of a supervised test environment and clearly documented human takeover. Meta documentation establishes that Embedded Signup is the appropriate official onboarding route when Maqtomate is ready to make customer connection self-serve. [Meta WhatsApp Business Platform](https://developers.facebook.com/documentation/business-messaging/whatsapp/overview)
+
+The resulting Maqtomate differentiation remains original: **official WhatsApp AI Employee operations for a business that wants a managed, tenant-isolated setup—not a generic automation canvas.** Priority product lessons are a visible customer-journey loop, supervised test-before-activation, crisp human-handoff conditions, role-aware operational visibility, and consent-aware follow-up. These are product principles only, not permission to copy a competitor’s text, visual system, workflow templates, commercial claims, ratings, or customer evidence.
+
+The research deliberately excludes public claims about competitor customer counts, revenue lift, open rates, ROI, uptime, reviews, or market share. Semrush MCP access was checked but the connected subscription did not authorize research access; no quantitative Semrush data was used.
+
+## GitHub implementation-reference boundary — 23 August 2026
+
+The public [`WhatsApp/WhatsApp-Business-API-Setup-Scripts`](https://github.com/WhatsApp/WhatsApp-Business-API-Setup-Scripts) repository was reviewed as an official historical reference. Its README explicitly states that the on-premises API is deprecated and directs implementers to the WhatsApp Business Cloud API. Maqtomate must therefore **not** adopt its Docker/on-premises setup; the only useful takeaway is confirmation that the Cloud API is the correct supported production path.
+
+Two mature open-source repositories were also evaluated as architecture references: [`chatwoot/chatwoot`](https://github.com/chatwoot/chatwoot) for customer-conversation operating concepts, and [`n8n-io/n8n`](https://github.com/n8n-io/n8n) for workflow-automation extensibility. Neither is approved as Maqtomate’s production core or should be copied wholesale. The implementation lessons are limited to explicit agent ownership, private internal context, auditable workflow actions, and integration boundaries. Any future use would require a separate tenant-isolation, licensing, data-retention, cost, security, and operational review.
 
 ## Live implementation verification — 22 August 2026
 
