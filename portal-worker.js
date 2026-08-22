@@ -41,17 +41,24 @@ export default {
     try {
       if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
 
-      if (request.method === 'GET' && path === '/') return htmlResponse(loginHTML(env), 200, headers);
+      if (request.method === 'GET' && path === '/') return htmlResponse(marketingSiteHTML('/'), 200, headers);
+      if (request.method === 'GET' && path === '/login') return htmlResponse(loginHTML(env), 200, headers);
+      if (request.method === 'GET' && path === '/connect') return htmlResponse(connectIntakeHTML(), 200, headers);
+      if (request.method === 'GET' && isMarketingPath(path)) return htmlResponse(marketingSiteHTML(path), 200, headers);
+      if (request.method === 'GET' && path === '/robots.txt') return new Response('User-agent: *\nAllow: /\nDisallow: /owner\nDisallow: /dashboard\nDisallow: /api/\n', { status: 200, headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }) });
+      if (request.method === 'GET' && path === '/sitemap.xml') return new Response(marketingSitemap(request, env), { status: 200, headers: new Headers({ 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }) });
+      if (request.method === 'POST' && path === '/api/public/rollout-requests') return await createPublicRolloutRequest(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/dashboard') {
         const access = await requireSession(request, env);
         const overview = access.platformRole ? await ownerOverviewData(env) : null;
         return htmlResponse(dashboardHTML(access.user, overview, access.platformRole), 200, headers);
       }
-      if (request.method === 'GET' && path === '/owner') return await ownerConsole(request, env, headers);
+      if (request.method === 'GET' && path === '/owner') return await ownerConsoleOrLogin(request, env, headers);
       if (request.method === 'POST' && path === '/owner/test-tenant/provision') return await provisionOwnerTestTenant(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/owner/test-tenant/attach-maqtomate-test-sender') return await attachMaqtomateTestSender(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/owner/test-tenant/validate-saved-credential') return await validateOwnerTestCredential(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/owner/test-tenant/renew-meta-token') return await renewOwnerTestCredential(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/owner/test-tenant/send-controlled-test') return await sendOwnerControlledTest(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/google') return await beginGoogleLogin(request, env, headers);
       if (request.method === 'GET' && path === '/auth/google/callback') return await completeGoogleLogin(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/verify') return await verifyMagicLink(request, env, headers, requestId);
@@ -308,6 +315,46 @@ async function requestMagicLink(request, env, headers, requestId) {
     }).catch(() => {});
   }
   return json({ ok: true, message: 'If this account is eligible, a secure sign-in link will be sent.' }, 200, headers);
+}
+
+function publicText(value, field, min, max) {
+  const text = String(value || '').trim();
+  if (text.length < min || text.length > max) throw new AccessError(`${field} must be between ${min} and ${max} characters.`, 400);
+  return text;
+}
+
+function publicOptionalUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (raw.length > 2048) throw new AccessError('Website URL is too long.', 400);
+  let url;
+  try { url = new URL(raw); } catch { throw new AccessError('Enter a valid website URL.', 400); }
+  if (!['http:', 'https:'].includes(url.protocol)) throw new AccessError('Website URL must use http or https.', 400);
+  return url.toString();
+}
+
+async function createPublicRolloutRequest(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const ipHash = await sha256(request.headers.get('CF-Connecting-IP') || 'unknown');
+  const allowed = await boundedRateLimit(env, `public-rollout:${ipHash}`, 3, 3600);
+  if (!allowed) throw new AccessError('Please wait before submitting another rollout request.', 429);
+  const body = await request.json().catch(() => { throw new AccessError('Invalid request.', 400); });
+  const useCase = String(body.use_case || '').trim();
+  const monthlyBand = String(body.monthly_message_band || '').trim();
+  const allowedUseCases = new Set(['sales', 'support', 'appointments', 'ecommerce', 'education', 'real_estate', 'other']);
+  const allowedBands = new Set(['under_500', '500_2000', '2000_10000', '10000_plus', 'unsure']);
+  if (!allowedUseCases.has(useCase) || !allowedBands.has(monthlyBand)) throw new AccessError('Choose a valid rollout profile.', 400);
+  if (body.consent !== true) throw new AccessError('Consent is required to request a rollout plan.', 400);
+  const businessName = publicText(body.business_name, 'Business name', 2, 120);
+  const email = normalizeEmail(body.email);
+  const country = publicText(body.country, 'Country or region', 2, 80);
+  const details = publicText(body.details, 'Workflow summary', 10, 1600);
+  const website = publicOptionalUrl(body.website);
+  await env.MAQVORA_DB.prepare(`
+    INSERT INTO public_rollout_requests (business_name, business_email, website, country, use_case, monthly_message_band, details, consent_at, source_path, ip_hash, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), '/connect', ?, 'new')
+  `).bind(businessName, email, website, country, useCase, monthlyBand, details, ipHash).run();
+  return json({ ok: true, message: 'Your rollout request has been received. A Maqtomate specialist will review the workflow before any connection step.' }, 202, headers);
 }
 
 async function beginGoogleLogin(request, env, headers) {
@@ -796,8 +843,29 @@ async function ownerTestTenantData(env) {
 async function ownerConsole(request, env, headers) {
   const access = await requireSession(request, env);
   requirePlatform(access, ['owner']);
-  const [overview, testTenant] = await Promise.all([ownerOverviewData(env), ownerTestTenantData(env)]);
-  return htmlResponse(ownerConsoleHTML(access.user, overview, testTenant), 200, headers);
+  const [overview, testTenant, runtimeDiagnostics] = await Promise.all([ownerOverviewData(env), ownerTestTenantData(env), ownerRuntimeCredentialDiagnostics(env)]);
+  return htmlResponse(ownerConsoleHTML(access.user, overview, testTenant, runtimeDiagnostics), 200, headers);
+}
+
+async function ownerConsoleOrLogin(request, env, headers) {
+  try {
+    return await ownerConsole(request, env, headers);
+  } catch (error) {
+    if (error instanceof AccessError && error.status === 401) return await beginGoogleLogin(request, env, headers);
+    throw error;
+  }
+}
+
+async function ownerRuntimeCredentialDiagnostics(env) {
+  try {
+    const bridge = env.OWNER_TEST_BRIDGE;
+    if (!bridge?.runtimeDiagnostics) return { available: false, checks: {} };
+    const response = await bridge.runtimeDiagnostics();
+    if (Number(response?.http_status) !== 200 || !response?.payload?.checks) return { available: false, checks: {} };
+    return { available: true, checks: response.payload.checks };
+  } catch (_) {
+    return { available: false, checks: {} };
+  }
 }
 
 async function provisionOwnerTestTenant(request, env, headers, requestId) {
@@ -929,18 +997,31 @@ async function validateOwnerTestCredential(request, env, headers, requestId) {
   if (!testTenant || testTenant.phone_status !== 'FOUND') {
     throw new AccessError('Attach the Maqtomate-owned test sender before checking its credential.', 409);
   }
-  const internalSecret = String(env.CORE_WORKER_SHARED_SECRET || '');
-  if (!internalSecret) throw new AccessError('The secure activation bridge is not configured.', 503);
-  const coreUrl = String(env.CORE_WORKER_URL || 'https://maqtomate-worker.moviesmaqxanimation.workers.dev').replace(/\/$/, '');
+  const bridge = env.OWNER_TEST_BRIDGE;
+  if (!bridge) throw new AccessError('The secure activation bridge is not configured.', 503);
   let result = null;
+  let bridgeHttpStatus = null;
+  let bridgeResponseClass = 'not_called';
   try {
-    const response = await fetch(`${coreUrl}/internal/owner-test/credential-health`, {
-      method: 'POST',
-      headers: { 'X-Maqtomate-Internal-Token': internalSecret }
-    });
-    result = await response.json().catch(() => null);
-    if (!response.ok || !result?.token_status) throw new Error('Credential health response unavailable.');
+    const response = await bridge.credentialHealth();
+    bridgeHttpStatus = Number(response?.http_status) || null;
+    result = response?.payload || null;
+    bridgeResponseClass = result?.token_status ? 'contract_json' : 'non_contract_response';
+    if (bridgeHttpStatus !== 200 || !result?.token_status) throw new Error('Credential health response unavailable.');
   } catch (_) {
+    await auditEvent(env, {
+      actorUserId: access.user.id,
+      actorRole: access.platformRole,
+      clientId: testTenant.id,
+      action: 'owner.test_tenant.saved_credential_bridge_failed',
+      requestId,
+      request,
+      details: {
+        bridge_http_status: bridgeHttpStatus,
+        bridge_response_class: bridgeResponseClass,
+        credential_plaintext_accessed: false
+      }
+    }).catch(() => {});
     throw new AccessError('The credential check is temporarily unavailable. No credential was changed.', 502);
   }
   const tokenStatus = ['VALID', 'INVALID', 'FAILED', 'NOT_AVAILABLE'].includes(result.token_status) ? result.token_status : 'FAILED';
@@ -969,19 +1050,31 @@ async function renewOwnerTestCredential(request, env, headers, requestId) {
   if (replacementToken.length < 30 || replacementToken.length > 4096) {
     throw new AccessError('Enter a newly generated Meta access token.', 400);
   }
-  const internalSecret = String(env.CORE_WORKER_SHARED_SECRET || '');
-  if (!internalSecret) throw new AccessError('The secure activation bridge is not configured.', 503);
-  const coreUrl = String(env.CORE_WORKER_URL || 'https://maqtomate-worker.moviesmaqxanimation.workers.dev').replace(/\/$/, '');
+  const bridge = env.OWNER_TEST_BRIDGE;
+  if (!bridge) throw new AccessError('The secure activation bridge is not configured.', 503);
   let result = null;
+  let bridgeHttpStatus = null;
+  let bridgeResponseClass = 'not_called';
   try {
-    const response = await fetch(`${coreUrl}/internal/owner-test/renew-credential`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Maqtomate-Internal-Token': internalSecret },
-      body: JSON.stringify({ meta_access_token: replacementToken })
-    });
-    result = await response.json().catch(() => null);
+    const response = await bridge.renewCredential(replacementToken);
+    bridgeHttpStatus = Number(response?.http_status) || null;
+    result = response?.payload || null;
+    bridgeResponseClass = result?.token_status ? 'contract_json' : 'non_contract_response';
     if (!result?.token_status) throw new Error('Credential renewal response unavailable.');
   } catch (_) {
+    await auditEvent(env, {
+      actorUserId: access.user.id,
+      actorRole: access.platformRole,
+      clientId: testTenant.id,
+      action: 'owner.test_tenant.credential_renewal_bridge_failed',
+      requestId,
+      request,
+      details: {
+        bridge_http_status: bridgeHttpStatus,
+        bridge_response_class: bridgeResponseClass,
+        credential_plaintext_accessed: false
+      }
+    }).catch(() => {});
     throw new AccessError('The secure credential renewal is temporarily unavailable. No credential was changed.', 502);
   }
   const tokenStatus = ['VALID', 'INVALID', 'FAILED', 'NOT_AVAILABLE'].includes(result.token_status) ? result.token_status : 'FAILED';
@@ -995,6 +1088,22 @@ async function renewOwnerTestCredential(request, env, headers, requestId) {
     details: { token_status: tokenStatus, credential_plaintext_accessed: false }
   });
   return redirectOwnerConsole(headers, `credential-renewal-${tokenStatus.toLowerCase()}`);
+}
+
+async function sendOwnerControlledTest(request, env, headers, requestId) {
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  let result = null;
+  try {
+    if (!env.OWNER_TEST_BRIDGE?.sendControlledTest) throw new Error('bridge_unavailable');
+    result = await env.OWNER_TEST_BRIDGE.sendControlledTest();
+  } catch (_) {
+    await auditEvent(env, { actorUserId: access.user.id, action: 'owner_test.controlled_send_bridge_failed', requestId, request, details: { response_class: 'bridge_unavailable' } }).catch(() => {});
+    return redirectOwnerConsole(headers, 'controlled-test-unavailable');
+  }
+  const delivery = String(result?.payload?.delivery || 'FAILED').toLowerCase();
+  await auditEvent(env, { actorUserId: access.user.id, action: 'owner_test.controlled_send_requested', requestId, request, details: { delivery } }).catch(() => {});
+  return redirectOwnerConsole(headers, `controlled-test-${delivery}`);
 }
 
 function redirectOwnerConsole(headers, status) {
@@ -1261,7 +1370,132 @@ function loginHTML(env) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button,.google{box-sizing:border-box;display:block;width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none}.google{background:#fff;color:#1f2937;border:1px solid #cbd5e1}.divider{margin:18px 0 4px;color:#8ca79f;text-align:center;font-size:13px}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Owner access uses Google Sign-In once configured. Customer access can use an approved one-time email link. No password is stored by Maqtomate.</p>${googleButton}<form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
 }
 
-function ownerConsoleHTML(user, overview, testTenant) {
+const MARKETING_PATHS = new Set([
+  '/product', '/how-it-works', '/use-cases', '/use-cases/real-estate', '/use-cases/clinics',
+  '/use-cases/salons', '/use-cases/education', '/use-cases/ecommerce', '/pricing', '/security',
+  '/resources', '/connect'
+]);
+
+function isMarketingPath(path) {
+  return MARKETING_PATHS.has(path);
+}
+
+function marketingSitemap(request, env) {
+  const base = portalBaseUrl(request, env);
+  const urls = ['/', ...MARKETING_PATHS].map(path => `<url><loc>${escapeHtml(`${base}${path}`)}</loc><changefreq>weekly</changefreq><priority>${path === '/' ? '1.0' : '0.7'}</priority></url>`).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls}</urlset>`;
+}
+
+function verticalPage(name, intro, modules) {
+  return {
+    eyebrow: `${name} use case`,
+    title: `${name} conversations, prepared for a <em>better next step.</em>`,
+    intro,
+    label: `${name} workflow`,
+    modules,
+    kicker: 'Start with the context your team needs before the handoff.'
+  };
+}
+
+function capabilityDetail(index) {
+  return [
+    'Configured to keep the conversation grounded in approved business information.',
+    'Voice-note support can prepare spoken enquiries for a useful response and review path.',
+    'Qualification captures only the context needed for the next business decision.',
+    'Human teams receive escalations with clear conversation history and context.',
+    'Tenant-scoped operational views keep lead and follow-up work visible.'
+  ][index] || 'Configured around your approved workflow and escalation rules.';
+}
+
+function stripTags(value) {
+  return String(value || '').replace(/<[^>]*>/g, '');
+}
+
+function marketingSiteHTML(path) {
+  const pages = {
+    '/': {
+      eyebrow: 'Official WhatsApp Cloud API · Managed deployment',
+      title: 'Your WhatsApp can do more than reply. <em>It can work.</em>',
+      intro: 'Maqtomate gives your business a managed WhatsApp AI Employee that answers enquiries, understands voice notes, qualifies leads, prepares human handoff, and keeps operations visible.',
+      label: 'The managed WhatsApp AI Employee',
+      modules: ['Reply with business context', 'Understand voice notes', 'Qualify every serious enquiry', 'Escalate with conversation context', 'Keep operations visible'],
+      kicker: 'Every conversation becomes a clearer next action.'
+    },
+    '/product': {
+      eyebrow: 'Product',
+      title: 'One AI Employee. <em>Five operational jobs.</em>',
+      intro: 'Maqtomate is designed around the work your team repeats every day: answer, understand, qualify, route, and report. It is not a generic chatbot builder.',
+      label: 'The Maqtomate operating loop',
+      modules: ['Customer message enters WhatsApp', 'AI uses approved business context', 'Lead context is captured consistently', 'Complex cases reach a human', 'Tenant-isolated operations stay reportable'],
+      kicker: 'Designed for repeatable customer work, not one-off replies.'
+    },
+    '/how-it-works': {
+      eyebrow: 'How it works',
+      title: 'A managed launch path. <em>No developer dashboard for your team.</em>',
+      intro: 'Maqtomate manages the technical connection process so your business team can focus on brand rules, customer experience, and escalation decisions.',
+      label: 'A controlled four-stage rollout',
+      modules: ['Map customer journey and handoff rules', 'Prepare approved knowledge and guardrails', 'Run a supervised official-API test', 'Activate after readiness review'],
+      kicker: 'Your staff are not asked for Meta API keys, webhook URLs, passwords, or OTPs.'
+    },
+    '/pricing': {
+      eyebrow: 'Pricing approach',
+      title: 'Pay for a managed system, <em>not an abandoned automation.</em>',
+      intro: 'Maqtomate plans are configured around conversation volume, workflow complexity, languages, and service model. Activation remains owner-reviewed during controlled rollout.',
+      label: 'What a managed plan includes',
+      modules: ['Tenant-isolated workspace', 'Official WhatsApp Cloud API model', 'AI Employee configuration', 'Lead and follow-up visibility', 'Clear activation boundaries'],
+      kicker: 'Request a rollout plan before committing to activation.'
+    },
+    '/security': {
+      eyebrow: 'Security and trust',
+      title: 'Customer conversations are a business system. <em>We treat them like one.</em>',
+      intro: 'Maqtomate is designed for tenant isolation, encrypted server-side credential handling, role-based access, and official API operation.',
+      label: 'Built-in trust boundaries',
+      modules: ['Official Meta WhatsApp Cloud API only', 'Encrypted server-side tenant credentials', 'Tenant-scoped dashboards', 'Auditable sensitive actions', 'No QR-session automation'],
+      kicker: 'Security is part of the operating model, not an add-on.'
+    },
+    '/resources': {
+      eyebrow: 'Resources',
+      title: 'Build a stronger WhatsApp customer journey. <em>One useful decision at a time.</em>',
+      intro: 'Maqtomate resources cover official WhatsApp onboarding, AI Employee workflows, voice-note operations, lead qualification, and human handoff design.',
+      label: 'Content clusters in development',
+      modules: ['AI Employee guides', 'Voice-note operations', 'Lead qualification templates', 'Industry conversation design', 'Official API readiness checklists'],
+      kicker: 'Useful operational education—not recycled chatbot content.'
+    },
+    '/connect': {
+      eyebrow: 'Managed connection',
+      title: 'Connect WhatsApp without turning your team into <em>Meta developers.</em>',
+      intro: 'Maqtomate uses a managed and approval-led connection journey. Your team provides business context and decision rules—not tokens, webhooks, passwords, or personal WhatsApp access.',
+      label: 'What happens after you request a rollout',
+      modules: ['Workflow and use-case review', 'Official connection eligibility review', 'Knowledge and escalation design', 'Supervised conversation test', 'Tenant activation after approval'],
+      kicker: 'Self-serve connection will be published only after Meta Embedded Signup is implemented and verified.'
+    },
+    '/use-cases': {
+      eyebrow: 'Use cases',
+      title: 'The AI Employee adapts to the work <em>behind the enquiry.</em>',
+      intro: 'Every industry has a different qualification path. Maqtomate starts with the information your team needs to make the next human decision faster.',
+      label: 'Start with a conversation your team already repeats',
+      modules: ['Real estate enquiry context', 'Clinic enquiry routing', 'Salon booking preparation', 'Education lead qualification', 'E-commerce exception handoff'],
+      kicker: 'Use-case workflows are configured around your approved customer journey.'
+    },
+    '/use-cases/real-estate': verticalPage('Real estate', 'Capture location, property type, budget range, and visit timing before your team steps in.', ['Property enquiry triage', 'Budget and location context', 'Site-visit preparation', 'Agent handoff with history']),
+    '/use-cases/clinics': verticalPage('Clinics', 'Prepare enquiry context and route the right next step without replacing professional judgement.', ['Service and availability questions', 'Appointment preparation', 'Consent-aware context', 'Staff handoff for complex cases']),
+    '/use-cases/salons': verticalPage('Salons', 'Give clients fast answers about services and help staff prepare a smoother booking handoff.', ['Service discovery', 'Availability context', 'Repeat-question automation', 'Team follow-up preparation']),
+    '/use-cases/education': verticalPage('Education', 'Qualify programme interest before a counsellor invests time in a detailed conversation.', ['Course and intake questions', 'Eligibility context', 'Counsellor routing', 'Follow-up visibility']),
+    '/use-cases/ecommerce': verticalPage('E-commerce', 'Handle product questions with business context, then hand exceptions to a human team with the conversation intact.', ['Product enquiry support', 'Order context workflows', 'Recommendation guardrails', 'Human exception routing'])
+  };
+  const page = pages[path] || pages['/'];
+  const cards = page.modules.map((item, index) => `<article class="cap"><span>0${index + 1}</span><h3>${escapeHtml(item)}</h3><p>${escapeHtml(capabilityDetail(index))}</p></article>`).join('');
+  const useCases = `<a href="/use-cases/real-estate">Real estate</a><a href="/use-cases/clinics">Clinics</a><a href="/use-cases/salons">Salons</a><a href="/use-cases/education">Education</a><a href="/use-cases/ecommerce">E-commerce</a>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111d"><meta name="description" content="Maqtomate is a managed WhatsApp AI Employee for official Meta Cloud API customer conversations, voice-note operations, lead qualification and supervised human handoff."><title>${escapeHtml(stripTags(page.title))} — Maqtomate</title><style>
+    :root{--bg:#07111d;--panel:#0d1726;--ink:#edf6fb;--muted:#9badc1;--line:#ffffff17;--mint:#8ff3d8;--mint2:#2bd5b6}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 8% 0,#13405577,transparent 31%),radial-gradient(circle at 92% 18%,#0e725d33,transparent 24%),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.nav{position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line);background:#07111de8;backdrop-filter:blur(16px)}.navin,.wrap{max-width:1180px;margin:auto;padding:0 22px}.navin{height:70px;display:flex;align-items:center;justify-content:space-between;gap:18px}.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:850;letter-spacing:-.04em}.mark{display:grid;place-items:center;width:29px;height:29px;border-radius:9px;background:linear-gradient(135deg,#b7f8e0,#39d9bd);color:#063127;font-size:12px}.navlinks{display:flex;gap:18px;align-items:center}.navlinks a{color:#b5c3d2;text-decoration:none;font-size:13px;font-weight:650}.navlinks a:hover{color:#fff}.navcta,.button{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:linear-gradient(135deg,#9af4db,#31d8bb);color:#063127;text-decoration:none;font-size:13px;font-weight:850;padding:11px 15px;box-shadow:0 9px 26px #21d4b025}.hero{position:relative;overflow:hidden;padding:clamp(66px,12vw,142px) 0 74px}.hero:after{content:"";position:absolute;right:-110px;top:54px;width:430px;height:430px;border-radius:999px;border:1px solid #a9f9e21d;box-shadow:0 0 0 48px #8ff3d805,0 0 0 96px #8ff3d803}.hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:1.08fr .92fr;gap:46px;align-items:center}.eyebrow{color:var(--mint);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}.hero h1{max-width:720px;margin:15px 0 0;font-size:clamp(46px,7vw,82px);line-height:.93;letter-spacing:-.075em}.hero h1 em{font-style:normal;color:var(--mint)}.hero p{max-width:610px;margin:22px 0 0;color:#b2c0d0;line-height:1.65;font-size:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:27px}.ghost{display:inline-flex;align-items:center;justify-content:center;border:1px solid #8ff3d84b;border-radius:10px;color:#cbfff1;text-decoration:none;font-size:13px;font-weight:800;padding:11px 15px;background:#36dfbd0d}.trustline{display:flex;flex-wrap:wrap;gap:8px;margin-top:21px}.trustline span{border:1px solid #ffffff1a;border-radius:999px;color:#a9bdca;padding:6px 9px;background:#0e1c2c8c;font-size:10px;font-weight:700}.product-card{position:relative;border:1px solid #7ef0d93d;border-radius:22px;padding:18px;background:linear-gradient(145deg,#11263a,#091320);box-shadow:0 25px 65px #0008}.window{border:1px solid #ffffff12;border-radius:15px;background:#06101b;overflow:hidden}.windowbar{display:flex;justify-content:space-between;padding:11px 13px;border-bottom:1px solid #ffffff12;color:#93a7bb;font-size:10px}.dots i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:4px;background:#ffcb6b}.thread{padding:15px;display:grid;gap:10px}.bubble{max-width:88%;border-radius:11px;padding:11px 12px;color:#b9c9d8;font-size:11px;line-height:1.45;background:#15253a}.bubble.you{margin-left:auto;background:#166f60;color:#d6fff5}.flow{display:grid;gap:9px;margin-top:13px}.flow div{display:flex;align-items:center;gap:9px;border:1px solid #ffffff10;border-radius:9px;padding:9px;color:#a8bacb;font-size:10px}.flow b{display:grid;place-items:center;width:19px;height:19px;border-radius:6px;background:#8ef2d630;color:#a4fee4;font-size:9px}.section{padding:78px 0;border-top:1px solid var(--line)}.section h2{max-width:760px;margin:12px 0 0;font-size:clamp(30px,5vw,54px);line-height:1;letter-spacing:-.06em}.section>p{max-width:680px;color:#9fb0c3;line-height:1.65}.capgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:28px}.cap{min-height:180px;border:1px solid var(--line);border-radius:15px;padding:17px;background:linear-gradient(145deg,#101d2f,#0a1421)}.cap>span{color:#83f2d7;font-size:10px;font-weight:800;letter-spacing:.1em}.cap h3{margin:26px 0 7px;font-size:15px;line-height:1.18;letter-spacing:-.025em}.cap p{margin:0;color:#7f93a9;font-size:11px;line-height:1.55}.proof{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}.proof article{border:1px solid var(--line);border-radius:18px;padding:24px;background:#0b1624}.proof h3{margin:0;font-size:22px;letter-spacing:-.04em}.proof p{color:#9eb0c1;line-height:1.6;font-size:13px}.list{display:grid;gap:10px;margin-top:17px}.list div{display:flex;gap:9px;color:#c7d5e2;font-size:12px;line-height:1.45}.list i{display:grid;place-items:center;flex:0 0 19px;height:19px;border-radius:6px;background:#4de2bf1b;color:#9effe4;font-style:normal;font-size:10px}.usecases{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.usecases a{border:1px solid #ffffff1c;border-radius:999px;padding:8px 11px;color:#c4d2df;text-decoration:none;font-size:11px;font-weight:700}.usecases a:hover{border-color:#8ff3d870;color:#baffea}.cta{margin:0 0 80px;border:1px solid #8ff3d83a;border-radius:23px;padding:clamp(25px,6vw,58px);background:radial-gradient(circle at 90% 10%,#47e6c528,transparent 28%),linear-gradient(135deg,#10263a,#0b1523)}.cta h2{max-width:760px;margin:10px 0 0;font-size:clamp(30px,5vw,56px);line-height:.98;letter-spacing:-.06em}.cta p{max-width:660px;color:#aac0cf;line-height:1.6}.footer{border-top:1px solid var(--line);padding:32px 0 44px;color:#71859b;font-size:11px}.footerin{max-width:1180px;margin:auto;padding:0 22px;display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}.footer a{color:#9fb5c5;text-decoration:none;margin-left:12px}@media(max-width:900px){.hero-grid,.proof{grid-template-columns:1fr}.product-card{max-width:600px}.capgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.navlinks{display:none}}@media(max-width:520px){.navin,.wrap{padding-left:15px;padding-right:15px}.navin{height:62px}.navcta{padding:9px 10px;font-size:11px}.hero{padding:58px 0}.hero h1{font-size:44px}.capgrid{grid-template-columns:1fr}.section{padding:55px 0}.cta{margin-bottom:55px}.footerin{padding:0 15px}}
+  </style></head><body><header class="nav"><div class="navin"><a class="brand" href="/"><span class="mark">M</span>Maqtomate</a><nav class="navlinks"><a href="/product">Product</a><a href="/how-it-works">How it works</a><a href="/use-cases">Use cases</a><a href="/security">Security</a><a href="/resources">Resources</a></nav><a class="navcta" href="/connect">Plan your AI Employee</a></div></header><main><section class="hero"><div class="wrap hero-grid"><div><span class="eyebrow">${escapeHtml(page.eyebrow)}</span><h1>${page.title}</h1><p>${escapeHtml(page.intro)}</p><div class="actions"><a class="button" href="/connect">Plan your AI Employee</a><a class="ghost" href="/how-it-works">See the managed workflow</a></div><div class="trustline"><span>Official Meta Cloud API only</span><span>Tenant-isolated operations</span><span>Human handoff built in</span></div></div><aside class="product-card" aria-label="Illustration of Maqtomate workflow"><div class="window"><div class="windowbar"><span>AI Employee · conversation brief</span><span class="dots"><i></i><i></i><i></i></span></div><div class="thread"><div class="bubble">I need help choosing the right service for my business.</div><div class="bubble you">I can help. I’ll understand the requirement, prepare the right questions, and keep the handoff clear for your team.</div><div class="flow"><div><b>01</b>Understands the customer message</div><div><b>02</b>Captures approved qualification context</div><div><b>03</b>Routes the next action with history</div></div></div></div></aside></div></section><section class="section"><div class="wrap"><span class="eyebrow">${escapeHtml(page.label)}</span><h2>${escapeHtml(page.kicker)}</h2><p>Maqtomate is built around the work that should happen after a customer message arrives. Every public claim is tied to an implemented or supervised capability—not a generic automation promise.</p><div class="capgrid">${cards}</div></div></section><section class="section"><div class="wrap proof"><article><span class="eyebrow">The customer journey</span><h3>From conversation to a decision your team can use.</h3><div class="list"><div><i>01</i><span>Customer messages or voice notes begin the interaction.</span></div><div><i>02</i><span>Approved business context shapes the response.</span></div><div><i>03</i><span>Useful qualification details prepare the right next step.</span></div><div><i>04</i><span>Complex cases hand over with conversation history.</span></div></div></article><article><span class="eyebrow">Managed connection</span><h3>Your team should run the business, not the developer dashboard.</h3><p>Maqtomate’s rollout keeps credentials, tokens, webhook configuration, and technical controls out of the customer’s day-to-day workflow.</p><div class="list"><div><i>✓</i><span>No customer API tokens or developer credentials requested.</span></div><div><i>✓</i><span>Personal WhatsApp numbers are not business sender defaults.</span></div><div><i>✓</i><span>Official API and supervised activation remain at the core.</span></div></div></article></div></section><section class="section"><div class="wrap"><span class="eyebrow">Built around real teams</span><h2>Choose the enquiry your business cannot afford to lose.</h2><p>Use-case workflows start with the details a human team needs next. They are configured around your rules, not copied from another business.</p><div class="usecases">${useCases}</div></div></section><section class="wrap cta"><span class="eyebrow">Ready to make WhatsApp operational?</span><h2>Design the AI Employee your team can supervise with confidence.</h2><p>Start with your customer journey, knowledge sources, escalation rules, and the business outcome you want to protect.</p><div class="actions"><a class="button" href="/connect">Plan a managed rollout</a><a class="ghost" href="/login">Secure portal sign-in</a></div></section></main><footer class="footer"><div class="footerin"><span>© ${new Date().getFullYear()} Maqtomate · Managed WhatsApp AI Employee</span><span><a href="/security">Security</a><a href="/resources">Resources</a><a href="/login">Sign in</a></span></div></footer></body></html>`;
+}
+
+function connectIntakeHTML() {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111d"><title>Plan your AI Employee — Maqtomate</title><style>:root{--bg:#07111d;--line:#ffffff18;--ink:#eff8fc;--muted:#9dafc1;--mint:#8ff3d8}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#13475b7a,transparent 34%),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}.nav,.main{max-width:1000px;margin:auto;padding-left:20px;padding-right:20px}.nav{height:70px;display:flex;align-items:center;justify-content:space-between}.brand{color:#fff;text-decoration:none;font-weight:850;letter-spacing:-.04em;display:flex;align-items:center;gap:9px}.mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#b7f8e0,#39d9bd);color:#063127;font-size:11px}.back{color:#baffea;text-decoration:none;font-size:12px;font-weight:750}.main{padding-top:44px;padding-bottom:72px}.eyebrow{color:var(--mint);font-size:10px;letter-spacing:.16em;font-weight:850;text-transform:uppercase}.main h1{max-width:720px;margin:13px 0;font-size:clamp(38px,7vw,70px);line-height:.93;letter-spacing:-.07em}.main h1 em{font-style:normal;color:var(--mint)}.intro{max-width:660px;color:#afbfce;line-height:1.65}.grid{display:grid;grid-template-columns:.85fr 1.15fr;gap:18px;margin-top:36px}.panel{border:1px solid var(--line);border-radius:18px;padding:22px;background:linear-gradient(145deg,#102137,#091422)}.panel h2{margin:0 0 10px;font-size:18px}.panel p,.panel li{color:#9cafc2;font-size:12px;line-height:1.6}.panel ul{padding-left:19px}.panel li+li{margin-top:8px}form{display:grid;gap:12px}.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:grid;gap:6px;color:#c9d7e2;font-size:11px;font-weight:750}input,select,textarea{width:100%;border:1px solid #ffffff1c;border-radius:10px;background:#050d17;color:#f4fbff;padding:11px 12px;font:inherit;font-size:13px;outline:0}textarea{min-height:118px;resize:vertical}input:focus,select:focus,textarea:focus{border-color:#8ff3d87a;box-shadow:0 0 0 3px #38e3c114}.consent{display:flex;align-items:flex-start;gap:8px;color:#91a5b8;font-size:11px;line-height:1.45}.consent input{width:auto;margin-top:2px}.button{border:0;border-radius:10px;background:linear-gradient(135deg,#9af4db,#31d8bb);color:#063127;font:inherit;font-size:13px;font-weight:850;padding:12px 15px;cursor:pointer}.note{min-height:24px;color:#9ff6de;font-size:12px;line-height:1.5}.privacy{margin-top:14px;color:#72879c;font-size:10px;line-height:1.55}@media(max-width:720px){.grid,.two{grid-template-columns:1fr}.main{padding-top:22px}.main h1{font-size:44px}}</style></head><body><header class="nav"><a class="brand" href="/"><span class="mark">M</span>Maqtomate</a><a class="back" href="/">Back to overview</a></header><main class="main"><span class="eyebrow">Managed rollout request</span><h1>Plan the AI Employee your team can <em>actually supervise.</em></h1><p class="intro">Tell us about the customer journey you want to improve. We review the workflow before any WhatsApp connection step. You will never be asked to submit Meta tokens, webhook URLs, passwords, OTPs, or a personal WhatsApp number here.</p><div class="grid"><aside class="panel"><h2>What happens next</h2><ul><li>We review the conversation and handoff workflow.</li><li>We confirm official connection eligibility and number strategy.</li><li>We define knowledge, escalation, and team-visibility boundaries.</li><li>We arrange a supervised test before activation.</li></ul><p class="privacy">This form collects business planning information only. It does not create an account or connect a WhatsApp number.</p></aside><section class="panel"><h2>Request a rollout review</h2><form id="rollout-form"><div class="two"><label>Business name<input name="business_name" required minlength="2" maxlength="120" autocomplete="organization"></label><label>Work email<input name="email" type="email" required autocomplete="email"></label></div><div class="two"><label>Country or region<input name="country" required minlength="2" maxlength="80" autocomplete="country-name"></label><label>Website<input name="website" type="url" maxlength="2048" placeholder="https://example.com"></label></div><div class="two"><label>Primary workflow<select name="use_case" required><option value="sales">Sales and lead qualification</option><option value="support">Customer support</option><option value="appointments">Appointments and bookings</option><option value="ecommerce">E-commerce enquiries</option><option value="education">Education enquiries</option><option value="real_estate">Real estate enquiries</option><option value="other">Other workflow</option></select></label><label>Monthly WhatsApp volume<select name="monthly_message_band" required><option value="under_500">Under 500</option><option value="500_2000">500–2,000</option><option value="2000_10000">2,000–10,000</option><option value="10000_plus">10,000+</option><option value="unsure">Not sure yet</option></select></label></div><label>What should the AI Employee handle?<textarea name="details" required minlength="10" maxlength="1600" placeholder="For example: answer service questions, collect budget and location, then hand qualified enquiries to a sales representative."></textarea></label><label class="consent"><input name="consent" type="checkbox" required>I agree that Maqtomate may use this business information to review and respond to my rollout request.</label><button class="button" type="submit">Request rollout review</button><div class="note" id="note" aria-live="polite"></div></form></section></div></main><script>const form=document.querySelector('#rollout-form'),note=document.querySelector('#note');form.addEventListener('submit',async e=>{e.preventDefault();const button=form.querySelector('button');button.disabled=true;note.textContent='Submitting your request…';const f=new FormData(form);const body=Object.fromEntries(f.entries());body.consent=f.get('consent')==='on';try{const r=await fetch('/api/public/rollout-requests',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();note.textContent=d.message||'Your request has been received.';if(r.ok)form.reset()}catch{note.textContent='Unable to submit right now. Please try again.'}finally{button.disabled=false}});</script></body></html>`;
+}
+
+function ownerConsoleLegacyHTML(user, overview, testTenant) {
   const safeName = escapeHtml(user.display_name || user.email);
   const metric = value => Number(value || 0).toLocaleString('en-PK');
   const attachAction = testTenant && testTenant.phone_status !== 'FOUND'
@@ -1277,6 +1511,42 @@ function ownerConsoleHTML(user, overview, testTenant) {
     ? `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>${escapeHtml(testTenant.business_name)}</h2><p class="success">Payment exempt · Active · Customer-equivalent test workspace</p><dl><div><dt>Connection</dt><dd>${escapeHtml(testTenant.connection_status || 'NOT_CONNECTED')}</dd></div><div><dt>Webhook</dt><dd>${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</dd></div><div><dt>Sender phone</dt><dd>${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</dd></div><div><dt>Token state</dt><dd>${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</dd></div></dl><p class="muted">No personal WhatsApp number, token, or secret is displayed or returned by this console. The credential check validates only the encrypted server-side Maqtomate test credential before any message can be sent.</p>${attachAction}${credentialAction}${renewalAction}</section>`
     : `<section class="card"><div class="eyebrow">OWNER TEST TENANT</div><h2>Run Maqtomate like your first customer</h2><p>Create one payment-exempt internal tenant. It follows the customer onboarding model but never creates a billing request, uses no customer credential, and never touches your personal WhatsApp number.</p><form method="post" action="/owner/test-tenant/provision"><button type="submit">Create payment-exempt Owner Test Tenant</button></form></section>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Owner Console</title><style>:root{--deep:#062f24;--brand:#10a86f;--soft:#f3f8f6;--ink:#102720;--muted:#547067;--line:#d8e8e1}*{box-sizing:border-box}body{margin:0;background:var(--soft);color:var(--ink);font-family:Inter,system-ui,sans-serif}.bar{padding:16px max(18px,calc((100vw - 1080px)/2));color:#fff;background:linear-gradient(115deg,#063c2c,#0b674b);display:flex;justify-content:space-between;gap:14px;align-items:center}.brand{font-weight:850}.sub{font-size:13px;opacity:.82;margin-left:8px}.out,button{border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:760;cursor:pointer}.out{background:#e3f7ee;color:#075e43}.wrap{max-width:1080px;margin:30px auto;padding:0 18px}.hero{margin-bottom:20px}.hero h1{margin:0 0 8px;font-size:clamp(28px,5vw,42px);letter-spacing:-.045em}.hero p,.muted{color:var(--muted);line-height:1.55}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0}.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 10px 26px #164b3810}.label,.eyebrow{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.06em}.eyebrow{color:#087950}.value{font-size:28px;font-weight:850;margin-top:7px;letter-spacing:-.04em}h2{margin:8px 0;font-size:22px}button{background:var(--brand);color:#fff;margin-top:8px}dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}dl div{padding:12px;border:1px solid var(--line);border-radius:10px;background:#fbfdfc}dt{font-size:12px;color:var(--muted)}dd{margin:5px 0 0;font-weight:780;overflow-wrap:anywhere}.success{color:#087950;font-weight:720}@media(max-width:720px){.wrap{margin:20px auto;padding:0 14px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sub{display:none}dl{grid-template-columns:1fr}}@media(max-width:380px){.grid{grid-template-columns:1fr}}</style></head><body><header class="bar"><div><span class="brand">Maqtomate</span><span class="sub">Owner Console</span></div><form method="post" action="/auth/logout"><button class="out" type="submit">Sign out</button></form></header><main class="wrap"><section class="hero"><div class="eyebrow">OWNER-ONLY CONTROL SURFACE</div><h1>Welcome, ${safeName}</h1><p>This console is server-rendered for reliable mobile access. It shows live fleet data without relying on browser-side dashboard initialization.</p></section><section class="grid"><article class="card"><div class="label">Active customers</div><div class="value">${metric(overview.active_tenants)}</div></article><article class="card"><div class="label">Platform users</div><div class="value">${metric(overview.active_users)}</div></article><article class="card"><div class="label">Monthly revenue</div><div class="value">Rs ${metric(overview.monthly_recurring_revenue)}</div></article><article class="card"><div class="label">Errors — 7 days</div><div class="value">${metric(overview.errors_last_7_days)}</div></article></section>${tenantStatus}</main></body></html>`;
+}
+
+function ownerConsoleHTML(user, overview, testTenant, runtimeDiagnostics = { available: false, checks: {} }) {
+  const safeName = escapeHtml(user.display_name || user.email);
+  const metric = value => Number(value || 0).toLocaleString('en-PK');
+  const senderFound = testTenant?.phone_status === 'FOUND';
+  const webhookVerified = testTenant?.webhook_status === 'VERIFIED';
+  const tokenValid = testTenant?.token_status === 'VALID';
+  const stageClass = state => state ? 'stage complete' : 'stage';
+  const tokenClass = tokenValid ? 'good' : 'warn';
+  const senderAction = testTenant && !senderFound
+    ? `<form method="post" action="/owner/test-tenant/attach-maqtomate-test-sender"><button class="primary" type="submit">Attach Maqtomate-owned test sender</button></form>`
+    : '';
+  const credentialAction = testTenant && senderFound && !tokenValid
+    ? `<form method="post" action="/owner/test-tenant/validate-saved-credential"><button class="secondary" type="submit">Check saved credential</button></form>`
+    : '';
+  const renewalAction = testTenant && senderFound && !tokenValid
+    ? `<form class="renewal" method="post" action="/owner/test-tenant/renew-meta-token" autocomplete="off"><label for="meta-access-token">Fresh dedicated sender token</label><input id="meta-access-token" name="meta_access_token" type="password" autocomplete="off" spellcheck="false" minlength="30" maxlength="4096" required placeholder="Paste once — never displayed again"><button class="primary" type="submit">Validate & encrypt token</button><p>Use a new temporary token generated only for the Maqtomate test sender. The browser never receives it after submission.</p></form>`
+    : '';
+  const diagnosticLabels = {
+    database: 'D1 database', kv: 'KV binding', admin_api_key: 'Admin key format', app_secret: 'Meta App Secret',
+    master_verify_token: 'Webhook verify token', tenant_encryption_key: 'Vault encryption key', gemini_api_key: 'Gemini API', owner_sender_vault: 'Owner sender vault'
+  };
+  const healthyDiagnostic = value => ['HEALTHY', 'CONFIGURED', 'FORMAT_VALID', 'REACHABLE', 'STORED_READABLE'].includes(String(value));
+  const diagnosticCards = runtimeDiagnostics.available
+    ? Object.entries(diagnosticLabels).map(([key, label]) => `<div><span>${label}</span><b class="${healthyDiagnostic(runtimeDiagnostics.checks?.[key]) ? 'ok' : 'attention'}">${escapeHtml(runtimeDiagnostics.checks?.[key] || 'UNAVAILABLE')}</b></div>`).join('')
+    : `<div><span>Diagnostic bridge</span><b class="attention">UNAVAILABLE</b></div>`;
+  const runtimePanel = `<section class="sender-card" style="margin-top:16px"><div class="section-head"><div><span class="kicker">Runtime credential diagnostics</span><h2>Configuration status, not values</h2></div><span class="pill">Owner-only</span></div><p class="summary">Each check returns a coarse runtime state only. API keys, encrypted token material, secrets, and provider error details never enter this page, browser logs, or audit records.</p><div class="state-grid">${diagnosticCards}</div></section>`;
+  const controlledTestAction = tokenValid ? `<form method="post" action="/owner/test-tenant/send-controlled-test"><button class="secondary" type="submit">Send controlled test to private recipient</button></form>` : '';
+  const tenantPanel = testTenant
+    ? `<section class="sender-card"><div class="section-head"><div><span class="kicker">Owner test tenant</span><h2>${escapeHtml(testTenant.business_name)}</h2></div><span class="pill ${tokenClass}">${tokenValid ? 'Credential valid' : 'Activation in progress'}</span></div><p class="summary">A payment-exempt, customer-equivalent workspace that lets you run Maqtomate as the first verified customer without touching your personal WhatsApp account.</p><div class="state-grid"><div><span>Dedicated sender</span><b class="${senderFound ? 'ok' : 'attention'}">${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</b></div><div><span>Webhook route</span><b class="${webhookVerified ? 'ok' : 'attention'}">${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</b></div><div><span>Credential vault</span><b class="${tokenClass}">${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</b></div><div><span>Last controlled test</span><b>${testTenant.last_test_at ? 'Recorded' : 'Awaiting test'}</b></div></div><div class="safe-note"><strong>Personal-number boundary</strong><span>Your personal WhatsApp is a private recipient-only test destination. It is never registered, moved, disconnected, or used as an API sender.</span></div><div class="action-stack">${senderAction}${credentialAction}${renewalAction}${controlledTestAction}</div></section>`
+    : `<section class="sender-card"><div class="section-head"><div><span class="kicker">Owner test tenant</span><h2>Run Maqtomate as your first customer</h2></div><span class="pill warn">Setup required</span></div><p class="summary">Create one payment-exempt internal workspace. It uses the same controlled customer lifecycle, but does not create a payment request or expose any customer credential.</p><form method="post" action="/owner/test-tenant/provision"><button class="primary" type="submit">Create payment-exempt Owner Test Tenant</button></form></section>`;
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111d"><title>Maqtomate Owner Command</title><style>
+    :root{--ink:#e8f1f8;--muted:#95a5b9;--dim:#64748b;--line:#ffffff17;--panel:#0d1726;--panel2:#101d2e;--teal:#83f5da;--teal2:#20c99a;--amber:#f6c15d;--bg:#07111d}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#123b4b88,transparent 31%),radial-gradient(circle at 100% 100%,#173b4b66,transparent 32%),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.topbar{position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line);background:#07111de8;backdrop-filter:blur(18px)}.topbar-inner{max-width:1260px;margin:auto;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:14px}.brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.035em}.mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#a7f3d0,#39d8ba);color:#063028;font-size:12px}.brand small{display:block;color:#7cdac5;font-size:9px;font-weight:750;letter-spacing:.16em;text-transform:uppercase}.signout,button{font:inherit;cursor:pointer}.signout{border:1px solid #7ce1cc44;border-radius:9px;background:#ddfff533;color:#cbfff1;padding:9px 12px;font-size:12px;font-weight:700}.wrap{max-width:1260px;margin:auto;padding:30px 20px 48px}.hero{position:relative;overflow:hidden;border:1px solid #74dec12d;border-radius:22px;padding:clamp(24px,5vw,52px);background:radial-gradient(circle at 90% 10%,#28d8bb28,transparent 28%),linear-gradient(132deg,#11243a,#09121f 70%);box-shadow:0 26px 70px #0005}.hero:after{content:"";position:absolute;right:-75px;bottom:-110px;width:300px;height:300px;border:1px solid #9fffe621;border-radius:999px}.kicker{color:#82f4dc;font-size:10px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}.hero h1{position:relative;max-width:760px;margin:12px 0 0;font-size:clamp(32px,5vw,62px);line-height:.96;letter-spacing:-.07em}.hero h1 em{font-style:normal;color:var(--teal)}.hero p{position:relative;max-width:600px;margin:18px 0 0;color:#aab8c9;line-height:1.65;font-size:14px}.hero-meta{position:relative;display:flex;flex-wrap:wrap;gap:9px;margin-top:25px}.hero-meta span,.pill{display:inline-flex;align-items:center;border:1px solid #7ce1cc33;border-radius:999px;padding:6px 9px;color:#b7f7e7;background:#32dfbd12;font-size:10px;font-weight:750}.pill.warn{border-color:#f6c15d45;background:#f6c15d12;color:#f8d58b}.pill.good{color:#a1f6d8}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.metric{border:1px solid var(--line);border-radius:16px;padding:16px;background:linear-gradient(145deg,#122238,#0b1422);box-shadow:0 14px 32px #0003}.metric span{display:flex;justify-content:space-between;color:#8d9db2;font-size:11px}.metric span i{display:block;width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px #44f2ce12}.metric b{display:block;margin-top:18px;font-size:25px;letter-spacing:-.045em}.metric small{display:block;margin-top:5px;color:#6e8098;font-size:10px}.command-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}.sender-card,.launch-card{border:1px solid var(--line);border-radius:18px;padding:22px;background:linear-gradient(145deg,#101e30,#0a1421);box-shadow:0 18px 45px #0003}.section-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.section-head h2,.launch-card h2{margin:6px 0 0;font-size:20px;letter-spacing:-.035em}.summary{max-width:680px;color:#9cacbf;font-size:13px;line-height:1.6}.state-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0}.state-grid div{padding:12px;border:1px solid #ffffff12;border-radius:11px;background:#03091450}.state-grid span{display:block;color:#718198;font-size:10px}.state-grid b{display:block;margin-top:5px;color:#dce8f3;font-size:12px;overflow-wrap:anywhere}.ok{color:#8df1d2!important}.attention,.warn{color:#f5ca76!important}.safe-note{display:grid;grid-template-columns:132px 1fr;gap:10px;border-left:2px solid var(--teal2);padding:10px 12px;background:#38e3c10d;color:#91a4b9;font-size:11px;line-height:1.55}.safe-note strong{color:#cbfff0}.action-stack{display:grid;gap:9px;margin-top:18px}.primary,.secondary{border-radius:10px;padding:11px 14px;font-size:12px;font-weight:800}.primary{border:0;background:linear-gradient(135deg,#89f2d7,#2dd7ba);color:#063028}.secondary{border:1px solid #85f1d350;background:#2de4c111;color:#bfffee}.renewal{display:grid;grid-template-columns:1fr auto;gap:8px;border-top:1px solid var(--line);padding-top:16px}.renewal label{grid-column:1/-1;color:#b9c8d8;font-size:11px;font-weight:700}.renewal input{min-width:0;border:1px solid #ffffff1c;border-radius:10px;background:#02081380;color:#fff;padding:11px 12px;font:inherit;font-size:12px;outline:0}.renewal input:focus{border-color:#72efd08c;box-shadow:0 0 0 3px #3be1c116}.renewal p{grid-column:1/-1;margin:0;color:#72839a;font-size:10px;line-height:1.45}.launch-card{position:relative;overflow:hidden}.launch-card:before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,var(--teal),transparent)}.launch-card p{margin:7px 0 15px;color:#94a5b8;font-size:12px;line-height:1.55}.stages{display:grid;gap:12px}.stage{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start}.stage:before{content:"";display:grid;place-items:center;width:21px;height:21px;border-radius:7px;border:1px solid #f4bf6055;background:#f4bf6014;color:#f8d58b;font-size:11px;font-weight:800}.stage:nth-child(1):before{content:"1"}.stage:nth-child(2):before{content:"2"}.stage:nth-child(3):before{content:"3"}.stage:nth-child(4):before{content:"4"}.stage.complete:before{border-color:#78efd077;background:#44e7c41a;color:#9ff8dc}.stage b{display:block;font-size:12px}.stage span{display:block;margin-top:3px;color:#718198;font-size:10px;line-height:1.45}.rule{margin-top:18px;border-top:1px solid var(--line);padding-top:14px;color:#8fa2b6;font-size:11px;line-height:1.55}.rule b{color:#d9e8f4}.fleet-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.fleet-strip div{border:1px solid #ffffff11;border-radius:12px;padding:13px;background:#07101b80}.fleet-strip span{color:#75869a;font-size:10px}.fleet-strip b{display:block;margin-top:5px;color:#e4f0fb;font-size:16px}@media(max-width:850px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.command-grid{grid-template-columns:1fr}.state-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.fleet-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.topbar-inner,.wrap{padding-left:14px;padding-right:14px}.hero{padding:23px 20px;border-radius:17px}.metrics{grid-template-columns:1fr}.state-grid,.fleet-strip{grid-template-columns:1fr}.safe-note{grid-template-columns:1fr}.renewal{grid-template-columns:1fr}.renewal .primary{width:100%}.signout{padding:8px 10px}.brand small{display:none}}
+  </style></head><body><header class="topbar"><div class="topbar-inner"><div class="brand"><span class="mark">M</span><div>Maqtomate<small>Owner command system</small></div></div><form method="post" action="/auth/logout"><button class="signout" type="submit">Sign out</button></form></div></header><main class="wrap"><section class="hero"><span class="kicker">Restricted production operations</span><h1>Command the <em>AI Employee fleet.</em></h1><p>Live control for tenant readiness, verified automation signals, and the owner-first activation path. All credentials remain encrypted behind server-side boundaries.</p><div class="hero-meta"><span>Owner verified: ${safeName}</span><span>Official Meta Cloud API only</span><span>Mobile-safe server rendering</span></div></section><section class="metrics"><article class="metric"><span>Active tenants<i></i></span><b>${metric(overview.active_tenants)}</b><small>Payment-approved production workspaces</small></article><article class="metric"><span>Platform users<i></i></span><b>${metric(overview.active_users)}</b><small>Owner and approved customer members</small></article><article class="metric"><span>Monthly revenue<i></i></span><b>Rs ${metric(overview.monthly_recurring_revenue)}</b><small>Live tenant monthly fee total</small></article><article class="metric"><span>Errors · 7 days<i></i></span><b>${metric(overview.errors_last_7_days)}</b><small>Operational events requiring review</small></article></section><section class="command-grid">${tenantPanel}<aside class="launch-card"><span class="kicker">Activation sequence</span><h2>Owner-first launch gate</h2><p>Complete this controlled path before any public customer onboarding.</p><div class="stages"><div class="${stageClass(Boolean(testTenant))}"><div><b>Payment-exempt tenant</b><span>${testTenant ? 'Internal customer-equivalent workspace is active.' : 'Create the internal owner workspace first.'}</span></div></div><div class="${stageClass(senderFound && webhookVerified)}"><div><b>Dedicated Maqtomate sender</b><span>${senderFound && webhookVerified ? 'Phone and webhook attachment confirmed.' : 'Use the Maqtomate-owned sender only.'}</span></div></div><div class="${stageClass(tokenValid)}"><div><b>Encrypted Meta credential</b><span>${tokenValid ? 'Stored and validated in the tenant vault.' : 'Fresh token is required before messages can be sent.'}</span></div></div><div class="${stageClass(false)}"><div><b>Controlled WhatsApp proof</b><span>Dedicated sender → Worker → Gemini → private recipient test still requires recorded success.</span></div></div></div><div class="rule"><b>Non-negotiable:</b> Your personal WhatsApp remains a private recipient-only test destination. It is never registered as the business sender.</div></aside></section>${runtimePanel}<section class="fleet-strip"><div><span>Voice notes · 7 days</span><b>${metric(overview.voice_notes_last_7_days)}</b></div><div><span>Follow-ups created</span><b>${metric(overview.follow_ups_created_last_7_days)}</b></div><div><span>Qualified leads</span><b>${metric(overview.qualified_leads_last_7_days)}</b></div><div><span>Enabled workflows</span><b>${metric(overview.enabled_workflows)}</b></div></section></main></body></html>`;
 }
 
 function dashboardHTML(user, initialOwnerOverview = null, platformRole = null) {

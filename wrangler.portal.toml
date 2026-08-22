@@ -13,6 +13,11 @@ database_id = "e05012b3-3c59-407f-b073-41183cf5a07c"
 binding = "MAQVORA_KV"
 id = "fbf76e29e82e46ef9b19a828ae5b369e"
 
+[[services]]
+binding = "OWNER_TEST_BRIDGE"
+service = "maqtomate-worker"
+entrypoint = "OwnerTestCredentialBridge"
+
 [vars]
 TEST_MODE_OWNER_EMAIL = "maqsoodahmedburiro123@gmail.com"
 PORTAL_URL = "https://maqtomate-portal.moviesmaqxanimation.workers.dev"

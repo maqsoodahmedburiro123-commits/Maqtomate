@@ -3,6 +3,14 @@ import { FEATURE_KEYS, shouldProcessVoice } from './config/features.js';
 import { generateTenantText, transcribeTenantAudio } from './services/ai/router.js';
 import { canConsumeTenantUsage, recordTenantUsage } from './services/usage/usage-service.js';
 
+let WorkerEntrypointBase = class {};
+try {
+  const cloudflareWorkers = await import('cloudflare:workers');
+  WorkerEntrypointBase = cloudflareWorkers.WorkerEntrypoint;
+} catch (_) {
+  // Node regression tests do not provide Cloudflare's runtime-only module.
+}
+
 /**
  * Maqtomate AI — Multi-Tenant WhatsApp AI Bot Worker
  * Single Cloudflare Worker that powers ALL clients.
@@ -27,10 +35,171 @@ import { canConsumeTenantUsage, recordTenantUsage } from './services/usage/usage
 
 async function getOwnerTestTenant(env) {
   return await env.MAQVORA_DB.prepare(`
-    SELECT id, phone_number_id, active FROM clients
-    WHERE business_name = 'Maqtomate Owner Test Tenant'
-    ORDER BY id DESC LIMIT 1
+    SELECT c.id, COALESCE(wc.phone_number_id, c.phone_number_id) AS phone_number_id, c.active
+    FROM clients c
+    LEFT JOIN tenant_whatsapp_connections wc ON wc.client_id = c.id
+    WHERE c.business_name = 'Maqtomate Owner Test Tenant'
+    ORDER BY c.id DESC LIMIT 1
   `).first();
+}
+
+export class OwnerTestCredentialBridge extends WorkerEntrypointBase {
+  async credentialHealth() {
+    const auditRequest = new Request('https://maqtomate.internal/owner-test/credential-health');
+    const ownerTenant = await getOwnerTestTenant(this.env);
+    if (!ownerTenant || Number(ownerTenant.active) !== 1 || !/^\d{8,30}$/.test(String(ownerTenant.phone_number_id || ''))) {
+      return { http_status: 409, payload: { success: false, token_status: 'NOT_AVAILABLE' } };
+    }
+    const storedToken = await getTenantSecret(this.env, ownerTenant.id, 'whatsapp_token');
+    if (!storedToken) {
+      await this.env.MAQVORA_DB.prepare(`
+        UPDATE tenant_whatsapp_connections
+        SET token_status = 'NOT_AVAILABLE', last_error_code = 'OWNER_TEST_TOKEN_MISSING', updated_at = datetime('now')
+        WHERE client_id = ?
+      `).bind(ownerTenant.id).run();
+      await writeAuditLog(this.env, auditRequest, 'owner_test.credential_health_checked', ownerTenant.id, { token_status: 'NOT_AVAILABLE' });
+      return { http_status: 200, payload: { success: true, token_status: 'NOT_AVAILABLE' } };
+    }
+    let tokenStatus = 'FAILED';
+    let errorCode = 'META_TOKEN_VALIDATION_FAILED';
+    try {
+      const validation = await fetch(`https://graph.facebook.com/v23.0/${ownerTenant.phone_number_id}?fields=id`, {
+        headers: { Authorization: `Bearer ${storedToken}` }
+      });
+      tokenStatus = validation.ok ? 'VALID' : 'INVALID';
+      errorCode = validation.ok ? null : 'META_TOKEN_VALIDATION_FAILED';
+    } catch (_) {
+      tokenStatus = 'FAILED';
+      errorCode = 'META_TOKEN_VALIDATION_UNAVAILABLE';
+    }
+    await this.env.MAQVORA_DB.prepare(`
+      UPDATE tenant_whatsapp_connections
+      SET token_status = ?, last_error_code = ?, updated_at = datetime('now')
+      WHERE client_id = ?
+    `).bind(tokenStatus, errorCode, ownerTenant.id).run();
+    await writeAuditLog(this.env, auditRequest, 'owner_test.credential_health_checked', ownerTenant.id, { token_status: tokenStatus });
+    return { http_status: 200, payload: { success: true, token_status: tokenStatus } };
+  }
+
+  async renewCredential(replacementToken) {
+    const auditRequest = new Request('https://maqtomate.internal/owner-test/renew-credential');
+    const token = String(replacementToken || '').trim();
+    if (token.length < 30 || token.length > 4096) {
+      return { http_status: 400, payload: { success: false, token_status: 'INVALID' } };
+    }
+    const ownerTenant = await getOwnerTestTenant(this.env);
+    if (!ownerTenant || Number(ownerTenant.active) !== 1 || !/^\d{8,30}$/.test(String(ownerTenant.phone_number_id || ''))) {
+      return { http_status: 409, payload: { success: false, token_status: 'NOT_AVAILABLE' } };
+    }
+    let limitedScopeTestCredential = false;
+    try {
+      const validation = await fetch(`https://graph.facebook.com/v23.0/${ownerTenant.phone_number_id}?fields=id`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!validation.ok) {
+        const errorPayload = await validation.json().catch(() => null);
+        limitedScopeTestCredential = errorPayload?.error?.code === 100 && errorPayload?.error?.error_subcode === 33;
+        if (!limitedScopeTestCredential) {
+          await writeAuditLog(this.env, auditRequest, 'owner_test.credential_renewal_rejected', ownerTenant.id, { token_status: 'INVALID' });
+          return { http_status: 400, payload: { success: false, token_status: 'INVALID' } };
+        }
+      } else {
+        const phoneInfo = await validation.json().catch(() => ({}));
+        if (String(phoneInfo.id || '') !== String(ownerTenant.phone_number_id)) {
+          await writeAuditLog(this.env, auditRequest, 'owner_test.credential_renewal_rejected', ownerTenant.id, { token_status: 'INVALID' });
+          return { http_status: 400, payload: { success: false, token_status: 'INVALID' } };
+        }
+      }
+    } catch (_) {
+      return { http_status: 502, payload: { success: false, token_status: 'FAILED' } };
+    }
+    await putTenantSecret(this.env, ownerTenant.id, 'whatsapp_token', token);
+    await this.env.MAQVORA_DB.prepare(`
+      UPDATE tenant_whatsapp_connections
+      SET token_status = 'VALID', last_error_code = ?, updated_at = datetime('now')
+      WHERE client_id = ?
+    `).bind(limitedScopeTestCredential ? 'META_TEST_SCOPE_LIMITED' : null, ownerTenant.id).run();
+    await writeAuditLog(this.env, auditRequest, 'owner_test.credential_renewed', ownerTenant.id, {
+      token_status: 'VALID', limited_scope_test_credential: limitedScopeTestCredential
+    });
+    return { http_status: 200, payload: { success: true, token_status: 'VALID' } };
+  }
+
+  async runtimeDiagnostics() {
+    const checks = {
+      database: 'UNAVAILABLE',
+      kv: this.env.MAQVORA_KV ? 'CONFIGURED' : 'MISSING',
+      admin_api_key: this.env.ADMIN_API_KEY && String(this.env.ADMIN_API_KEY).length >= 24 ? 'FORMAT_VALID' : (this.env.ADMIN_API_KEY ? 'FORMAT_INVALID' : 'MISSING'),
+      app_secret: this.env.APP_SECRET && String(this.env.APP_SECRET).length >= 16 ? 'CONFIGURED' : (this.env.APP_SECRET ? 'FORMAT_INVALID' : 'MISSING'),
+      master_verify_token: this.env.MASTER_VERIFY_TOKEN && String(this.env.MASTER_VERIFY_TOKEN).length >= 16 ? 'CONFIGURED' : (this.env.MASTER_VERIFY_TOKEN ? 'FORMAT_INVALID' : 'MISSING'),
+      tenant_encryption_key: 'MISSING',
+      gemini_api_key: this.env.GEMINI_API_KEY ? 'CONFIGURED' : 'MISSING',
+      owner_sender_vault: 'NOT_AVAILABLE'
+    };
+    try {
+      await this.env.MAQVORA_DB.prepare('SELECT 1 AS healthy').first();
+      checks.database = 'HEALTHY';
+    } catch (_) {}
+    if (this.env.TENANT_DATA_ENCRYPTION_KEY) {
+      try {
+        checks.tenant_encryption_key = base64ToBytes(this.env.TENANT_DATA_ENCRYPTION_KEY).length === 32 ? 'FORMAT_VALID' : 'FORMAT_INVALID';
+      } catch (_) {
+        checks.tenant_encryption_key = 'FORMAT_INVALID';
+      }
+    }
+    try {
+      const ownerTenant = await getOwnerTestTenant(this.env);
+      if (ownerTenant) {
+        const storedToken = await getTenantSecret(this.env, ownerTenant.id, 'whatsapp_token');
+        checks.owner_sender_vault = storedToken ? 'STORED_READABLE' : 'MISSING';
+      }
+    } catch (_) {
+      checks.owner_sender_vault = 'UNREADABLE';
+    }
+    if (this.env.GEMINI_API_KEY) {
+      try {
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': this.env.GEMINI_API_KEY }
+        });
+        checks.gemini_api_key = response.ok ? 'REACHABLE' : 'REJECTED';
+      } catch (_) {
+        checks.gemini_api_key = 'UNAVAILABLE';
+      }
+    }
+    return { http_status: 200, payload: { success: true, checks } };
+  }
+
+  async sendControlledTest() {
+    const auditRequest = new Request('https://maqtomate.internal/owner-test/controlled-send');
+    const recipient = String(this.env.OWNER_TEST_RECIPIENT_MSISDN || '').replace(/\D/g, '');
+    if (!/^\d{8,15}$/.test(recipient)) {
+      return { http_status: 409, payload: { success: false, delivery: 'RECIPIENT_NOT_CONFIGURED' } };
+    }
+    const ownerTenant = await getOwnerTestTenant(this.env);
+    if (!ownerTenant || Number(ownerTenant.active) !== 1 || !/^\d{8,30}$/.test(String(ownerTenant.phone_number_id || ''))) {
+      return { http_status: 409, payload: { success: false, delivery: 'SENDER_NOT_READY' } };
+    }
+    const token = await getTenantSecret(this.env, ownerTenant.id, 'whatsapp_token');
+    if (!token) return { http_status: 409, payload: { success: false, delivery: 'CREDENTIAL_NOT_AVAILABLE' } };
+    try {
+      const messageId = await sendWhatsAppText(
+        recipient,
+        'Maqtomate controlled activation test: your dedicated AI Employee sender is connected.',
+        token,
+        ownerTenant.phone_number_id
+      );
+      await this.env.MAQVORA_DB.prepare(`
+        UPDATE tenant_whatsapp_connections
+        SET last_test_at = datetime('now'), updated_at = datetime('now')
+        WHERE client_id = ?
+      `).bind(ownerTenant.id).run();
+      await writeAuditLog(this.env, auditRequest, 'owner_test.outbound_message_requested', ownerTenant.id, { delivery: 'requested' });
+      return { http_status: 200, payload: { success: true, delivery: messageId ? 'REQUESTED' : 'UNKNOWN' } };
+    } catch (_) {
+      await writeAuditLog(this.env, auditRequest, 'owner_test.outbound_message_failed', ownerTenant.id, { delivery: 'failed' });
+      return { http_status: 502, payload: { success: false, delivery: 'FAILED' } };
+    }
+  }
 }
 
 export default {
