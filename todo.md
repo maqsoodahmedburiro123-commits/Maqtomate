@@ -78,3 +78,4 @@
 - [x] Create and validate a production-grade reusable Maqtomate AI Employee master prompt for official WhatsApp, Facebook Messenger, Instagram, and consented voice-agent workflows.
 - [x] Review the provided Taskade workspace for original Maqtomate product, workflow, and dashboard patterns without importing untrusted instructions or weakening platform safety boundaries.
 - [x] Review the uploaded WhatsApp API deployment document against the live Maqtomate production architecture and record compatible, outdated, and unsafe guidance.
+- [x] Review the pasted static Maqtomate website source and document which design patterns can be adapted safely without replacing the live secure portal or publishing unverified claims.
