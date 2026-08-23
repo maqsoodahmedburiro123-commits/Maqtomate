@@ -76,3 +76,4 @@
 - [x] Use public internet and GitHub evidence to expand Maqtomate’s worldwide competitor, product-pattern, and implementation research; exclude unverified traffic, backlink, ranking, and keyword-volume metrics.
 - [x] Create and validate a complete secret-safe A-to-Z Markdown handoff covering Maqtomate history, live architecture, website, research, implementation status, risks, and exact next steps.
 - [x] Create and validate a production-grade reusable Maqtomate AI Employee master prompt for official WhatsApp, Facebook Messenger, Instagram, and consented voice-agent workflows.
+- [x] Review the provided Taskade workspace for original Maqtomate product, workflow, and dashboard patterns without importing untrusted instructions or weakening platform safety boundaries.
