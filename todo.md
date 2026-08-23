@@ -75,3 +75,4 @@
 - [x] Validate Semrush access for worldwide Maqtomate competitor and keyword research; collect and report only verified data, or document access limitations without fabricating quantitative results.
 - [x] Use public internet and GitHub evidence to expand Maqtomate’s worldwide competitor, product-pattern, and implementation research; exclude unverified traffic, backlink, ranking, and keyword-volume metrics.
 - [x] Create and validate a complete secret-safe A-to-Z Markdown handoff covering Maqtomate history, live architecture, website, research, implementation status, risks, and exact next steps.
+- [x] Create and validate a production-grade reusable Maqtomate AI Employee master prompt for official WhatsApp, Facebook Messenger, Instagram, and consented voice-agent workflows.
