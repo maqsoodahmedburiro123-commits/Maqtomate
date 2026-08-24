@@ -104,3 +104,6 @@
 - [x] Add a read-only customer operating-profile preview that shows approved service scope, hours, handoff and AI-mode status without sending messages, invoking Gemini, exposing credentials, or fabricating performance.
 - [x] Add tenant-safe customer workspace navigation that omits or clearly gates conversations, leads, knowledge, team, usage and integrations until each server-side capability is active and verified.
 - [x] Add regression tests for the customer workspace’s owner privacy, pre-tenant restrictions, server-derived statuses, and no-fake-live-feature guarantees.
+- [x] Keep customer password setup at the secure 12-character minimum and make that requirement clear before form submission.
+- [x] Show approved Managed Launch and Custom Business Rollout setup/monthly pricing, inclusion summary, and activation boundary directly beside the customer setup offer selector.
+- [x] Verify the public Pricing page visibly presents the same two approved offers and no retired public package.

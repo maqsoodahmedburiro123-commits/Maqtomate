@@ -98,3 +98,13 @@ test('customer activation and workspace surfaces use server-derived states witho
   assert.doesNotMatch(workspace, /Owner Console/);
   assert.doesNotMatch(workspace, /Send controlled test/);
 });
+
+test('customer setup makes approved offer pricing visible and retains the twelve-character password minimum', async () => {
+  const source = await readFile(new URL('../portal-worker.js', import.meta.url), 'utf8');
+  const setup = source.slice(source.indexOf('function customerOnboardingSetupHTML('), source.indexOf('function passwordResetHTML('));
+  assert.match(setup, /Managed Launch — Rs 5,000 setup \+ Rs 2,000\/month/);
+  assert.match(setup, /Custom Business Rollout — quote after review/);
+  assert.match(setup, /at least 12 characters/);
+  assert.match(setup, /minlength="12"/);
+  assert.match(setup, /does not instantly activate a bot/);
+});
