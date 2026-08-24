@@ -111,3 +111,6 @@
 - [x] Rebuild the public Maqtomate main page with a premium managed-WhatsApp AI Employee narrative, visible offers, customer journey, workspace preview, and clear conversion paths.
 - [x] Present connector-backed expansion as a tenant-scoped, owner-approved roadmap without enabling or claiming unverified CRM, spreadsheet, social, voice, payment, or automation actions.
 - [x] Add main-page regressions for truthful feature claims, customer/owner access separation, official WhatsApp boundaries, and pricing consistency.
+- [x] Redesign the public main-page color system, typography hierarchy, surface treatment, and responsive layout for a modern realistic premium SaaS presentation.
+- [x] Add restrained product-relevant motion graphics to the activation and workspace visuals, with reduced-motion support and no unverified live-operation implication.
+- [x] Verify the visual redesign preserves readability, public pricing, customer/owner separation, and official WhatsApp-only claims.
