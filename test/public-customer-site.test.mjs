@@ -27,6 +27,15 @@ test('public pricing presents managed packages with supervised activation rather
   assert.doesNotMatch(pricingRoute, /VIP Managed/);
 });
 
+test('public routes use original, page-specific workflow visuals with reduced-motion protection', () => {
+  assert.match(source, /function routeVisual\(path\)/);
+  assert.match(source, /AI Employee operating loop/);
+  assert.match(source, /Managed rollout sequence/);
+  assert.match(source, /Security operating boundary/);
+  assert.match(source, /@media\(prefers-reduced-motion:no-preference\)/);
+  assert.doesNotMatch(source, /generic AI robot/i);
+});
+
 test('public rollout intake is privacy-minimised, rate-limited, and does not request a WhatsApp number or credential', () => {
   assert.match(source, /path === '\/api\/public\/rollout-requests'/);
   assert.match(source, /public-rollout:\$\{ipHash\}/);
