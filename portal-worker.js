@@ -1315,11 +1315,11 @@ async function attachMaqtomateTestSender(request, env, headers, requestId) {
     `).bind(MAQTOMATE_TEST_PHONE_ID, testTenant.id),
     env.MAQVORA_DB.prepare(`
       INSERT INTO tenant_whatsapp_connections (client_id, waba_id, phone_number_id, display_phone_number, display_name, connection_status, webhook_status, phone_status, token_status, updated_at)
-      VALUES (?, ?, ?, ?, 'Maqtomate Meta Test Sender', 'PHONE_FOUND', 'VERIFIED', 'FOUND', 'NOT_AVAILABLE', datetime('now'))
+      VALUES (?, ?, ?, ?, 'Maqtomate Meta Test Sender', 'PHONE_FOUND', 'UNVERIFIED', 'FOUND', 'NOT_AVAILABLE', datetime('now'))
       ON CONFLICT(client_id) DO UPDATE SET
         waba_id = excluded.waba_id, phone_number_id = excluded.phone_number_id,
         display_phone_number = excluded.display_phone_number, display_name = excluded.display_name,
-        connection_status = 'PHONE_FOUND', webhook_status = 'VERIFIED',
+        connection_status = 'PHONE_FOUND', webhook_status = CASE WHEN tenant_whatsapp_connections.webhook_status = 'VERIFIED' THEN 'VERIFIED' ELSE 'UNVERIFIED' END,
         phone_status = 'FOUND', token_status = CASE WHEN tenant_whatsapp_connections.token_status = 'VALID' THEN 'VALID' ELSE 'NOT_AVAILABLE' END,
         updated_at = datetime('now')
     `).bind(testTenant.id, MAQTOMATE_TEST_WABA_ID, MAQTOMATE_TEST_PHONE_ID, MAQTOMATE_TEST_DISPLAY_NUMBER)

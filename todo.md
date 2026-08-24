@@ -114,3 +114,5 @@
 - [x] Redesign the public main-page color system, typography hierarchy, surface treatment, and responsive layout for a modern realistic premium SaaS presentation.
 - [x] Add restrained product-relevant motion graphics to the activation and workspace visuals, with reduced-motion support and no unverified live-operation implication.
 - [x] Verify the visual redesign preserves readability, public pricing, customer/owner separation, and official WhatsApp-only claims.
+- [ ] Verify and correct any owner-console webhook-status display that is not evidenced by a successful current-WABA subscription audit event; retain explicit unknown or unverified states.
+- [ ] Confirm current dedicated-sender token and WABA subscription readiness through protected, redacted diagnostics before any future inbound webhook or controlled message test.
