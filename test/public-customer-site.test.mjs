@@ -17,6 +17,14 @@ test('customer website copy does not advertise unofficial WhatsApp access or uni
   assert.doesNotMatch(source, /Maqtomate .* 4\.9\/5/);
 });
 
+test('public pricing presents managed packages with supervised activation rather than instant self-service', () => {
+  assert.match(source, /Managed Launch/);
+  assert.match(source, /VIP Managed/);
+  assert.match(source, /Custom business rollout/);
+  assert.match(source, /does not promise instant self-service connection/);
+  assert.match(source, /It does not promise an instant bot, self-service Meta connection, voice calling, social automation, or unverified integration/);
+});
+
 test('public rollout intake is privacy-minimised, rate-limited, and does not request a WhatsApp number or credential', () => {
   assert.match(source, /path === '\/api\/public\/rollout-requests'/);
   assert.match(source, /public-rollout:\$\{ipHash\}/);
