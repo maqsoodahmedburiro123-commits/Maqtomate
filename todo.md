@@ -108,3 +108,6 @@
 - [x] Show approved Managed Launch and Custom Business Rollout setup/monthly pricing, inclusion summary, and activation boundary directly beside the customer setup offer selector.
 - [x] Verify the public Pricing page visibly presents the same two approved offers and no retired public package.
 - [x] Change the customer-only password minimum to seven characters in both browser and server validation, keeping the separate owner gate unchanged.
+- [x] Rebuild the public Maqtomate main page with a premium managed-WhatsApp AI Employee narrative, visible offers, customer journey, workspace preview, and clear conversion paths.
+- [x] Present connector-backed expansion as a tenant-scoped, owner-approved roadmap without enabling or claiming unverified CRM, spreadsheet, social, voice, payment, or automation actions.
+- [x] Add main-page regressions for truthful feature claims, customer/owner access separation, official WhatsApp boundaries, and pricing consistency.
