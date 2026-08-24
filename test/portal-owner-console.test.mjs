@@ -25,7 +25,9 @@ test('Owner Console is server-rendered and Owner Test Tenant provisioning is pay
 test('Customer login keeps owner access and Google sign-in private', () => {
   const source = readFileSync(new URL('../portal-worker.js', import.meta.url), 'utf8');
   const customerLogin = source.slice(source.indexOf('function loginHTML(env)'), source.indexOf('const MARKETING_PATHS'));
-  assert.match(customerLogin, /approved business email/);
+  assert.match(customerLogin, /Business email/);
+  assert.match(customerLogin, /Create a customer account/);
+  assert.match(customerLogin, /Forgot password/);
   assert.doesNotMatch(customerLogin, /Owner access uses Google Sign-In/);
   assert.doesNotMatch(customerLogin, /Continue with Google — Owner access/);
   assert.doesNotMatch(customerLogin, /href="\/auth\/google"/);

@@ -86,3 +86,12 @@
 - [x] Remove VIP Managed from public Maqtomate pricing and sales materials because no customer offer may imply use of the owner’s Meta or WhatsApp credentials; retain Managed Launch and Custom Business Rollout.
 - [x] Separate owner access from the customer-facing login page and add an owner-only password gate before Google authentication, preserving customer magic-link access and existing tenant isolation.
 - [x] Audit the uploaded elite-upgrade specification against live Maqtomate capabilities and apply only verified, additive public pricing and visual-storytelling improvements without changing owner access, customer login, secrets, tenant isolation, or verified pricing policy.
+- [ ] Build secure customer email/password authentication with verified email, password reset, rate limiting, hashed credentials, and separate owner access.
+- [x] Add payment-request and owner-approval gating so a customer tenant is activated only after manual approval.
+- [x] Make customer-safe pricing prominent and implement server-enforced Gemini BYOK versus managed-AI mode selection without using or sharing owner Meta/WhatsApp credentials.
+- [x] Add regression tests for customer auth, tenant isolation, payment activation, and Gemini entitlement boundaries before deployment.
+- [x] Add a separate customer Google sign-in flow that establishes verified customer identity and leads to customer password setup, without exposing or bypassing the private owner password-plus-Google gate.
+- [x] Add a customer-safe activation-readiness checklist that records approved business information, consent/opt-in evidence, human-handoff contact, and connection status without collecting Meta passwords, tokens, OTPs, or WhatsApp numbers in a public form.
+- [ ] Add tenant-scoped AI cost and outcome telemetry that distinguishes deterministic, AI-assisted, human-handoff, and failed paths without exposing prompts, secrets, cross-tenant data, or unverified cost claims.
+- [ ] Design a feature-gated WhatsApp Flows capability for structured lead qualification and service requests, with per-tenant data minimisation, opt-in/opt-out controls, official Meta approval, and end-to-end tests before release.
+- [ ] Evaluate enabled workflow and automation integrations only through tenant-scoped, server-side, idempotent adapter contracts; do not connect, authorize, or write to customer systems until the user explicitly approves a named provider and action.

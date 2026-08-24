@@ -23,6 +23,8 @@ import { getTenantUsageSummary } from './services/usage/usage-service.js';
 
 const SESSION_TTL_SECONDS = 60 * 60 * 12;
 const MAGIC_LINK_TTL_MINUTES = 15;
+const ACCOUNT_ACTION_TTL_MINUTES = 30;
+const PASSWORD_PBKDF2_ITERATIONS = 310000;
 const MAX_PAGE_SIZE = 100;
 const TEST_OWNER_EMAIL = 'maqsoodahmedburiro123@gmail.com';
 const MAQTOMATE_TEST_WABA_ID = '2021200748859223';
@@ -43,6 +45,9 @@ export default {
 
       if (request.method === 'GET' && path === '/') return htmlResponse(marketingSiteHTML('/'), 200, headers);
       if (request.method === 'GET' && path === '/login') return htmlResponse(loginHTML(env), 200, headers);
+      if (request.method === 'GET' && path === '/signup') return await customerSignupPage(request, env, headers);
+      if (request.method === 'GET' && path === '/onboarding') return await customerOnboardingPage(request, env, headers);
+      if (request.method === 'GET' && path === '/onboarding/setup') return await customerOnboardingSetupPage(request, env, headers);
       if (request.method === 'GET' && path === '/connect') return htmlResponse(connectIntakeHTML(), 200, headers);
       if (request.method === 'GET' && isMarketingPath(path)) return htmlResponse(marketingSiteHTML(path), 200, headers);
       if (request.method === 'GET' && path === '/robots.txt') return new Response('User-agent: *\nAllow: /\nDisallow: /owner\nDisallow: /dashboard\nDisallow: /api/\n', { status: 200, headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }) });
@@ -66,7 +71,15 @@ export default {
       if (request.method === 'POST' && path === '/owner/test-tenant/send-controlled-test') return await sendOwnerControlledTest(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/google') return await beginOwnerGoogleLogin(request, env, headers);
       if (request.method === 'GET' && path === '/auth/google/callback') return await completeGoogleLogin(request, env, headers, requestId);
+      if (request.method === 'GET' && path === '/auth/customer/google') return await beginCustomerGoogleLogin(request, env, headers);
+      if (request.method === 'GET' && path === '/auth/customer/google/callback') return await completeCustomerGoogleLogin(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/verify') return await verifyMagicLink(request, env, headers, requestId);
+      if (request.method === 'GET' && path === '/auth/account/verify') return await verifyCustomerAccountEmail(request, env, headers, requestId);
+      if (request.method === 'GET' && path === '/auth/password-reset') return await passwordResetPage(request, env, headers);
+      if (request.method === 'POST' && path === '/auth/password-reset') return await completePasswordReset(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/auth/register') return await registerCustomerAccount(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/auth/password-login') return await passwordLogin(request, env, headers, requestId);
+      if (request.method === 'POST' && path === '/auth/password-forgot') return await requestPasswordReset(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/request-link') return await requestMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/logout') return await logout(request, env, headers, requestId);
 
@@ -82,6 +95,10 @@ export default {
       if (path === '/api/customer/export' && request.method === 'GET') return await customerExport(request, env, headers, requestId);
       if (path === '/api/customer/settings' && request.method === 'GET') return await customerSettingsGet(request, env, headers);
       if (path === '/api/customer/settings' && request.method === 'PUT') return await customerSettingsPut(request, env, headers, requestId);
+      if (path === '/api/customer/onboarding' && request.method === 'GET') return await customerOnboardingStatus(request, env, headers);
+      if (path === '/api/customer/onboarding/setup' && request.method === 'POST') return await completeCustomerOnboardingSetup(request, env, headers, requestId);
+      if (path === '/api/customer/onboarding/readiness' && request.method === 'POST') return await saveCustomerActivationReadiness(request, env, headers, requestId);
+      if (path === '/api/customer/onboarding/payment' && request.method === 'POST') return await submitCustomerOnboardingPayment(request, env, headers, requestId);
 
       if (path === '/api/owner/overview' && request.method === 'GET') return await ownerOverview(request, env, headers);
       if (path === '/api/owner/tenants' && request.method === 'GET') return await ownerTenants(request, env, headers, requestId);
@@ -89,6 +106,8 @@ export default {
       if (path === '/api/owner/invitations' && request.method === 'POST') return await createTenantInvitation(request, env, headers, requestId);
       if (path === '/api/owner/payments' && request.method === 'GET') return await ownerPaymentRequests(request, env, headers, requestId);
       if (request.method === 'POST' && /^\/api\/owner\/payments\/\d+\/(approve|reject)$/.test(path)) return await reviewPaymentRequest(request, env, headers, requestId);
+      if (path === '/api/owner/customer-onboarding' && request.method === 'GET') return await ownerCustomerOnboardingRequests(request, env, headers, requestId);
+      if (request.method === 'POST' && /^\/api\/owner\/customer-onboarding\/\d+\/(approve|reject|activate)$/.test(path)) return await reviewCustomerOnboardingRequest(request, env, headers, requestId);
       if (path === '/api/owner/audit' && request.method === 'GET') return await ownerAudit(request, env, headers);
 
       return json({ error: 'Not found', request_id: requestId }, 404, headers);
@@ -185,6 +204,10 @@ function googleCallbackUrl(request, env) {
   return `${portalBaseUrl(request, env)}/auth/google/callback`;
 }
 
+function customerGoogleCallbackUrl(request, env) {
+  return `${portalBaseUrl(request, env)}/auth/customer/google/callback`;
+}
+
 function base64Url(bytes) {
   const binary = String.fromCharCode(...bytes);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -199,6 +222,59 @@ function randomToken(size = 32) {
 async function sha256(value) {
   const result = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return [...new Uint8Array(result)].map(v => v.toString(16).padStart(2, '0')).join('');
+}
+
+function bytesFromBase64Url(value) {
+  const padded = String(value || '').replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(String(value || '').length / 4) * 4, '=');
+  const binary = atob(padded);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+function validPassword(value) {
+  const password = String(value || '');
+  if (password.length < 12 || password.length > 256) throw new AccessError('Use a password between 12 and 256 characters.', 400);
+  return password;
+}
+
+async function derivePasswordHash(password, salt = null, iterations = PASSWORD_PBKDF2_ITERATIONS) {
+  const saltBytes = salt ? bytesFromBase64Url(salt) : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'PBKDF2' }, false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations }, key, 256);
+  return { hash: base64Url(new Uint8Array(bits)), salt: base64Url(saltBytes), iterations };
+}
+
+async function passwordMatches(password, storedHash, storedSalt, storedIterations) {
+  if (!storedHash || !storedSalt || !Number.isInteger(Number(storedIterations))) return false;
+  const derived = await derivePasswordHash(password, storedSalt, Number(storedIterations));
+  return safeHashEquals(derived.hash, storedHash);
+}
+
+async function issueSession(userId, request, env) {
+  const sessionToken = randomToken(48);
+  const [sessionHash, ipHash, uaHash] = await Promise.all([
+    sha256(sessionToken),
+    sha256(request.headers.get('CF-Connecting-IP') || 'unknown'),
+    sha256(request.headers.get('User-Agent') || 'unknown')
+  ]);
+  await env.MAQVORA_DB.prepare(`
+    INSERT INTO user_sessions (token_hash, user_id, expires_at, ip_hash, user_agent_hash)
+    VALUES (?, ?, datetime('now', '+12 hours'), ?, ?)
+  `).bind(sessionHash, userId, ipHash, uaHash).run();
+  return sessionToken;
+}
+
+async function createAccountAction(env, userId, purpose, minutes = ACCOUNT_ACTION_TTL_MINUTES) {
+  const token = randomToken(48);
+  const tokenHash = await sha256(token);
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE account_action_tokens SET expires_at = datetime('now') WHERE user_id = ? AND purpose = ? AND used_at IS NULL AND expires_at > datetime('now')`).bind(userId, purpose),
+    env.MAQVORA_DB.prepare(`INSERT INTO account_action_tokens (token_hash, user_id, purpose, expires_at) VALUES (?, ?, ?, datetime('now', ?))`).bind(tokenHash, userId, purpose, `+${minutes} minutes`)
+  ]);
+  return token;
+}
+
+function customerEmailReady(env) {
+  return Boolean(env.RESEND_API_KEY && env.EMAIL_FROM);
 }
 
 async function boundedRateLimit(env, key, max, seconds) {
@@ -243,6 +319,15 @@ async function requireSession(request, env) {
     platformRole: platform.results?.[0]?.role || null,
     memberships: memberships.results || []
   };
+}
+
+async function optionalSession(request, env) {
+  try {
+    return await requireSession(request, env);
+  } catch (error) {
+    if (error instanceof AccessError && error.status === 401) return null;
+    throw error;
+  }
 }
 
 function requirePlatform(access, allowed = ['owner', 'platform_admin']) {
@@ -330,6 +415,163 @@ async function requestMagicLink(request, env, headers, requestId) {
   return json({ ok: true, message: 'If this account is eligible, a secure sign-in link will be sent.' }, 200, headers);
 }
 
+function onboardingOffer(value) {
+  const offer = String(value || '').trim();
+  if (!['managed_launch', 'custom_rollout'].includes(offer)) throw new AccessError('Choose a valid Maqtomate offer.', 400);
+  return offer;
+}
+
+function onboardingAiMode(value) {
+  const mode = String(value || '').trim();
+  if (!['customer_byok', 'managed_ai'].includes(mode)) throw new AccessError('Choose a valid Gemini mode.', 400);
+  return mode;
+}
+
+function onboardingAmount(offer) {
+  return offer === 'managed_launch' ? 5000 : 0;
+}
+
+async function sendAccountActionEmail(env, email, actionUrl, purpose) {
+  const subject = purpose === 'email_verify' ? 'Verify your Maqtomate account' : 'Reset your Maqtomate password';
+  const heading = purpose === 'email_verify' ? 'Verify your email' : 'Reset your password';
+  const intro = purpose === 'email_verify'
+    ? 'Use the secure button below to verify your Maqtomate account before payment or onboarding can begin.'
+    : 'Use the secure button below to choose a new Maqtomate password.';
+  const html = `<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:32px;color:#111827"><h1 style="font-size:24px">${heading}</h1><p>${intro}</p><p style="margin:28px 0"><a href="${escapeHtml(actionUrl)}" style="background:#059669;color:#fff;text-decoration:none;padding:14px 22px;border-radius:8px;font-weight:700">Continue securely</a></p><p style="font-size:13px;color:#6b7280">This link expires in ${ACCOUNT_ACTION_TTL_MINUTES} minutes and can be used only once. If you did not request it, you can safely ignore this email.</p></div>`;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: env.EMAIL_FROM, to: [email], subject, html })
+  });
+  if (!response.ok) throw new Error(`Account email delivery failed with status ${response.status}.`);
+}
+
+async function registerCustomerAccount(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const body = await request.json().catch(() => { throw new AccessError('Invalid registration request.', 400); });
+  const ipHash = await sha256(request.headers.get('CF-Connecting-IP') || 'unknown');
+  if (!(await boundedRateLimit(env, `auth:register:${ipHash}`, 5, 900))) throw new AccessError('Too many registration attempts. Please wait before trying again.', 429);
+  if (!customerEmailReady(env)) throw new AccessError('Customer email verification is not configured yet. Please request a managed rollout review instead.', 503);
+  const email = normalizeEmail(body.email);
+  const password = validPassword(body.password);
+  if (password !== String(body.confirm_password || '')) throw new AccessError('Passwords do not match.', 400);
+  const businessName = publicText(body.business_name, 'Business name', 2, 120);
+  const country = publicText(body.country, 'Country or region', 2, 80);
+  const requestedOffer = onboardingOffer(body.requested_offer);
+  const requestedAiMode = onboardingAiMode(body.requested_ai_mode);
+  const existing = await env.MAQVORA_DB.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').bind(email).first();
+  if (existing) return json({ ok: true, message: 'If this email can be used for an account, a verification message will be sent.' }, 202, headers);
+  const verifier = await derivePasswordHash(password);
+  const created = await env.MAQVORA_DB.prepare(`
+    INSERT INTO users (email, display_name, status, password_hash, password_salt, password_iterations, password_set_at)
+    VALUES (?, ?, 'pending', ?, ?, ?, datetime('now'))
+  `).bind(email, businessName, verifier.hash, verifier.salt, verifier.iterations).run();
+  const userId = Number(created.meta?.last_row_id);
+  try {
+    await env.MAQVORA_DB.prepare(`
+      INSERT INTO customer_onboarding_requests (user_id, business_name, country, requested_offer, requested_ai_mode, expected_setup_amount)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(userId, businessName, country, requestedOffer, requestedAiMode, onboardingAmount(requestedOffer)).run();
+    const token = await createAccountAction(env, userId, 'email_verify');
+    const verifyUrl = `${portalBaseUrl(request, env)}/auth/account/verify?token=${encodeURIComponent(token)}`;
+    await sendAccountActionEmail(env, email, verifyUrl, 'email_verify');
+  } catch (error) {
+    await env.MAQVORA_DB.prepare('DELETE FROM users WHERE id = ? AND status = ?').bind(userId, 'pending').run().catch(() => {});
+    throw new AccessError('Account verification email could not be sent. Please try again later.', 503);
+  }
+  await auditEvent(env, { actorUserId: userId, action: 'customer.account_registered', requestId, request, details: { requested_offer: requestedOffer, requested_ai_mode: requestedAiMode } });
+  return json({ ok: true, message: 'Check your email to verify your account before payment and onboarding.' }, 201, headers);
+}
+
+async function verifyCustomerAccountEmail(request, env, headers, requestId) {
+  const token = new URL(request.url).searchParams.get('token') || '';
+  if (token.length < 32) throw new AccessError('This verification link is invalid or expired.', 400);
+  const tokenHash = await sha256(token);
+  const action = await env.MAQVORA_DB.prepare(`
+    SELECT id, user_id FROM account_action_tokens
+    WHERE token_hash = ? AND purpose = 'email_verify' AND used_at IS NULL AND expires_at > datetime('now')
+  `).bind(tokenHash).first();
+  if (!action) throw new AccessError('This verification link is invalid or expired.', 400);
+  const used = await env.MAQVORA_DB.prepare('UPDATE account_action_tokens SET used_at = datetime(\'now\') WHERE id = ? AND used_at IS NULL').bind(action.id).run();
+  if (!used.meta?.changes) throw new AccessError('This verification link has already been used.', 400);
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE users SET status = 'active', email_verified_at = datetime('now'), last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).bind(action.user_id),
+    env.MAQVORA_DB.prepare(`UPDATE customer_onboarding_requests SET status = 'payment_pending', updated_at = datetime('now') WHERE user_id = ? AND status = 'email_verification_required'`).bind(action.user_id)
+  ]);
+  const sessionToken = await issueSession(action.user_id, request, env);
+  await auditEvent(env, { actorUserId: action.user_id, action: 'customer.email_verified', requestId, request });
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('Location', '/onboarding');
+  responseHeaders.append('Set-Cookie', sessionCookie(sessionToken));
+  return new Response(null, { status: 303, headers: responseHeaders });
+}
+
+async function passwordLogin(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const body = await request.json().catch(() => ({}));
+  const ipHash = await sha256(request.headers.get('CF-Connecting-IP') || 'unknown');
+  if (!(await boundedRateLimit(env, `auth:password:${ipHash}`, 8, 900))) throw new AccessError('Too many sign-in attempts. Please wait before trying again.', 429);
+  const email = normalizeEmail(body.email);
+  const password = String(body.password || '');
+  const user = await env.MAQVORA_DB.prepare(`SELECT id, status, password_hash, password_salt, password_iterations FROM users WHERE email = ? COLLATE NOCASE`).bind(email).first();
+  if (!user || user.status !== 'active' || !(await passwordMatches(password, user.password_hash, user.password_salt, user.password_iterations))) {
+    await auditEvent(env, { action: 'customer.password_login_denied', requestId, request, details: { reason: 'invalid_credentials' } }).catch(() => {});
+    throw new AccessError('Email or password was not accepted.', 401);
+  }
+  const sessionToken = await issueSession(user.id, request, env);
+  await env.MAQVORA_DB.prepare(`UPDATE users SET last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).bind(user.id).run();
+  await auditEvent(env, { actorUserId: user.id, action: 'customer.password_login', requestId, request });
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('Set-Cookie', sessionCookie(sessionToken));
+  return json({ ok: true, redirect: '/dashboard' }, 200, responseHeaders);
+}
+
+async function requestPasswordReset(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const body = await request.json().catch(() => ({}));
+  const email = normalizeEmail(body.email);
+  const ipHash = await sha256(request.headers.get('CF-Connecting-IP') || 'unknown');
+  if (!(await boundedRateLimit(env, `auth:password-reset:${ipHash}`, 5, 900))) throw new AccessError('Too many requests. Please wait before trying again.', 429);
+  const user = await env.MAQVORA_DB.prepare(`SELECT id FROM users WHERE email = ? COLLATE NOCASE AND status = 'active'`).bind(email).first();
+  if (user && customerEmailReady(env)) {
+    try {
+      const token = await createAccountAction(env, user.id, 'password_reset');
+      await sendAccountActionEmail(env, email, `${portalBaseUrl(request, env)}/auth/password-reset?token=${encodeURIComponent(token)}`, 'password_reset');
+      await auditEvent(env, { actorUserId: user.id, action: 'customer.password_reset_requested', requestId, request });
+    } catch (_) {
+      await auditEvent(env, { actorUserId: user.id, action: 'customer.password_reset_delivery_failed', requestId, request }).catch(() => {});
+    }
+  }
+  return json({ ok: true, message: 'If this account is eligible, password reset instructions will be sent.' }, 200, headers);
+}
+
+async function passwordResetPage(request, env, headers) {
+  const token = new URL(request.url).searchParams.get('token') || '';
+  if (token.length < 32) throw new AccessError('This password reset link is invalid or expired.', 400);
+  return htmlResponse(passwordResetHTML(token), 200, headers);
+}
+
+async function completePasswordReset(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const body = await request.json().catch(() => { throw new AccessError('Invalid password reset request.', 400); });
+  const token = String(body.token || '');
+  const password = validPassword(body.password);
+  if (password !== String(body.confirm_password || '')) throw new AccessError('Passwords do not match.', 400);
+  const action = await env.MAQVORA_DB.prepare(`
+    SELECT id, user_id FROM account_action_tokens WHERE token_hash = ? AND purpose = 'password_reset' AND used_at IS NULL AND expires_at > datetime('now')
+  `).bind(await sha256(token)).first();
+  if (!action) throw new AccessError('This password reset link is invalid or expired.', 400);
+  const verifier = await derivePasswordHash(password);
+  const changed = await env.MAQVORA_DB.prepare(`UPDATE account_action_tokens SET used_at = datetime('now') WHERE id = ? AND used_at IS NULL`).bind(action.id).run();
+  if (!changed.meta?.changes) throw new AccessError('This password reset link has already been used.', 400);
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE users SET password_hash = ?, password_salt = ?, password_iterations = ?, password_set_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).bind(verifier.hash, verifier.salt, verifier.iterations, action.user_id),
+    env.MAQVORA_DB.prepare(`UPDATE user_sessions SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL`).bind(action.user_id)
+  ]);
+  await auditEvent(env, { actorUserId: action.user_id, action: 'customer.password_reset_completed', requestId, request });
+  return json({ ok: true, message: 'Password updated. You can now sign in.' }, 200, headers);
+}
+
 function publicText(value, field, min, max) {
   const text = String(value || '').trim();
   if (text.length < min || text.length > max) throw new AccessError(`${field} must be between ${min} and ${max} characters.`, 400);
@@ -391,6 +633,62 @@ async function beginGoogleLogin(request, env, headers) {
   redirectHeaders.append('Set-Cookie', oauthTransientCookie('mt_google_state', state));
   redirectHeaders.append('Set-Cookie', oauthTransientCookie('mt_google_nonce', nonce));
   return new Response(null, { status: 302, headers: redirectHeaders });
+}
+
+async function beginCustomerGoogleLogin(request, env, headers) {
+  if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) throw new AccessError('Customer Google sign-in is not configured yet.', 503);
+  const state = randomToken(32);
+  const nonce = randomToken(32);
+  const authorizationUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authorizationUrl.searchParams.set('client_id', env.GOOGLE_OAUTH_CLIENT_ID);
+  authorizationUrl.searchParams.set('redirect_uri', customerGoogleCallbackUrl(request, env));
+  authorizationUrl.searchParams.set('response_type', 'code');
+  authorizationUrl.searchParams.set('scope', 'openid email profile');
+  authorizationUrl.searchParams.set('state', state);
+  authorizationUrl.searchParams.set('nonce', nonce);
+  authorizationUrl.searchParams.set('prompt', 'select_account');
+  authorizationUrl.searchParams.set('access_type', 'online');
+  const redirectHeaders = new Headers(headers);
+  redirectHeaders.set('Location', authorizationUrl.toString());
+  redirectHeaders.append('Set-Cookie', oauthTransientCookie('mt_customer_google_state', state));
+  redirectHeaders.append('Set-Cookie', oauthTransientCookie('mt_customer_google_nonce', nonce));
+  return new Response(null, { status: 302, headers: redirectHeaders });
+}
+
+async function completeCustomerGoogleLogin(request, env, headers, requestId) {
+  if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) throw new AccessError('Customer Google sign-in is not configured yet.', 503);
+  const url = new URL(request.url);
+  const state = url.searchParams.get('state') || '';
+  const code = url.searchParams.get('code') || '';
+  const expectedState = cookieValue(request, 'mt_customer_google_state') || '';
+  const nonce = cookieValue(request, 'mt_customer_google_nonce') || '';
+  if (!state || !code || !expectedState || !nonce || !(await safeHashEquals(state, expectedState))) throw new AccessError('Google sign-in verification failed. Please start again.', 400);
+  const exchange = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ code, client_id: env.GOOGLE_OAUTH_CLIENT_ID, client_secret: env.GOOGLE_OAUTH_CLIENT_SECRET, redirect_uri: customerGoogleCallbackUrl(request, env), grant_type: 'authorization_code' }).toString()
+  });
+  if (!exchange.ok) throw new AccessError('Google sign-in could not be completed. Please start again.', 502);
+  const tokenSet = await exchange.json().catch(() => ({}));
+  const claims = await verifyGoogleIdToken(tokenSet.id_token, env.GOOGLE_OAUTH_CLIENT_ID, nonce);
+  let user = await env.MAQVORA_DB.prepare(`SELECT id, password_hash FROM users WHERE email = ? COLLATE NOCASE`).bind(claims.email).first();
+  if (!user) {
+    const created = await env.MAQVORA_DB.prepare(`INSERT INTO users (email, display_name, status, email_verified_at, last_login_at) VALUES (?, ?, 'active', datetime('now'), datetime('now'))`).bind(claims.email, claims.email).run();
+    user = { id: Number(created.meta?.last_row_id), password_hash: null };
+  } else {
+    await env.MAQVORA_DB.prepare(`UPDATE users SET status = 'active', email_verified_at = COALESCE(email_verified_at, datetime('now')), last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).bind(user.id).run();
+  }
+  const onboarding = await env.MAQVORA_DB.prepare(`SELECT id, status FROM customer_onboarding_requests WHERE user_id = ?`).bind(user.id).first();
+  const membership = await env.MAQVORA_DB.prepare(`SELECT client_id FROM tenant_memberships WHERE user_id = ? AND status = 'active' LIMIT 1`).bind(user.id).first();
+  const sessionToken = await issueSession(user.id, request, env);
+  await auditEvent(env, { actorUserId: user.id, action: 'customer.google_identity_verified', requestId, request, details: { onboarding_state: onboarding?.status || 'new' } });
+  const destination = !user.password_hash || !onboarding ? '/onboarding/setup' : membership ? '/dashboard' : '/onboarding';
+  const redirectHeaders = new Headers(headers);
+  redirectHeaders.set('Location', destination);
+  redirectHeaders.append('Set-Cookie', sessionCookie(sessionToken));
+  redirectHeaders.append('Set-Cookie', clearOAuthTransientCookie('mt_customer_google_state'));
+  redirectHeaders.append('Set-Cookie', clearOAuthTransientCookie('mt_customer_google_nonce'));
+  return new Response(null, { status: 303, headers: redirectHeaders });
 }
 
 async function hasOwnerGate(request, env) {
@@ -1423,12 +1721,240 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[char]));
 }
 
+async function customerOnboardingRecord(userId, env) {
+  return env.MAQVORA_DB.prepare(`
+    SELECT o.id, o.business_name, o.country, o.requested_offer, o.requested_ai_mode, o.status,
+           o.expected_setup_amount, o.currency, o.payment_reference, o.payment_submitted_at,
+           o.review_note, o.tenant_client_id, o.created_at, o.updated_at,
+           u.email, u.email_verified_at
+    FROM customer_onboarding_requests o JOIN users u ON u.id = o.user_id
+    WHERE o.user_id = ?
+  `).bind(userId).first();
+}
+
+async function customerActivationReadiness(onboardingId, userId, env) {
+  return env.MAQVORA_DB.prepare(`
+    SELECT id, service_summary, operating_hours, handoff_email, status, opt_in_acknowledged_at, created_at, updated_at
+    FROM customer_activation_readiness
+    WHERE onboarding_request_id = ? AND user_id = ?
+  `).bind(onboardingId, userId).first();
+}
+
+async function customerOnboardingPage(request, env, headers) {
+  const access = await requireSession(request, env);
+  if (access.platformRole) return redirectToOwnerGate(headers);
+  if (access.memberships.length) {
+    const responseHeaders = new Headers(headers);
+    responseHeaders.set('Location', '/dashboard');
+    return new Response(null, { status: 303, headers: responseHeaders });
+  }
+  const onboarding = await customerOnboardingRecord(access.user.id, env);
+  if (!onboarding) throw new AccessError('No customer onboarding request is associated with this account.', 404);
+  const readiness = await customerActivationReadiness(onboarding.id, access.user.id, env);
+  return htmlResponse(customerOnboardingHTML(onboarding, readiness), 200, headers);
+}
+
+async function customerSignupPage(request, env, headers) {
+  const session = await optionalSession(request, env).catch(() => null);
+  if (session?.user?.id) {
+    const responseHeaders = new Headers(headers);
+    responseHeaders.set('Location', '/onboarding');
+    return new Response(null, { status: 303, headers: responseHeaders });
+  }
+  return htmlResponse(signupHTML(Boolean(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET)), 200, headers);
+}
+
+async function customerOnboardingSetupPage(request, env, headers) {
+  const access = await requireSession(request, env);
+  if (access.platformRole) return redirectToOwnerGate(headers);
+  if (access.memberships.length) {
+    const responseHeaders = new Headers(headers);
+    responseHeaders.set('Location', '/dashboard');
+    return new Response(null, { status: 303, headers: responseHeaders });
+  }
+  const existing = await customerOnboardingRecord(access.user.id, env);
+  if (existing) {
+    const responseHeaders = new Headers(headers);
+    responseHeaders.set('Location', '/onboarding');
+    return new Response(null, { status: 303, headers: responseHeaders });
+  }
+  return htmlResponse(customerOnboardingSetupHTML(access.user.email), 200, headers);
+}
+
+async function completeCustomerOnboardingSetup(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  if (access.platformRole || access.memberships.length) throw new AccessError('Customer onboarding setup is unavailable for this account.', 403);
+  const body = await request.json().catch(() => { throw new AccessError('Invalid onboarding setup request.', 400); });
+  const password = validPassword(body.password);
+  if (password !== String(body.confirm_password || '')) throw new AccessError('Passwords do not match.', 400);
+  const businessName = publicText(body.business_name, 'Business name', 2, 120);
+  const country = publicText(body.country, 'Country or region', 2, 80);
+  const requestedOffer = onboardingOffer(body.requested_offer);
+  const requestedAiMode = onboardingAiMode(body.requested_ai_mode);
+  const existing = await customerOnboardingRecord(access.user.id, env);
+  if (existing) throw new AccessError('This customer account already has an onboarding request.', 409);
+  const verifier = await derivePasswordHash(password);
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE users SET display_name = ?, password_hash = ?, password_salt = ?, password_iterations = ?, password_set_at = datetime('now'), status = 'active', email_verified_at = COALESCE(email_verified_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`).bind(businessName, verifier.hash, verifier.salt, verifier.iterations, access.user.id),
+    env.MAQVORA_DB.prepare(`INSERT INTO customer_onboarding_requests (user_id, business_name, country, requested_offer, requested_ai_mode, status, expected_setup_amount) VALUES (?, ?, ?, ?, ?, 'payment_pending', ? )`).bind(access.user.id, businessName, country, requestedOffer, requestedAiMode, onboardingAmount(requestedOffer))
+  ]);
+  await auditEvent(env, { actorUserId: access.user.id, action: 'customer.onboarding_setup_completed', requestId, request, details: { requested_offer: requestedOffer, requested_ai_mode: requestedAiMode } });
+  return json({ ok: true, redirect: '/onboarding' }, 201, headers);
+}
+
+async function customerOnboardingStatus(request, env, headers) {
+  const access = await requireSession(request, env);
+  if (access.platformRole) throw new AccessError('Customer onboarding access only.', 403);
+  const onboarding = await customerOnboardingRecord(access.user.id, env);
+  if (!onboarding) throw new AccessError('No customer onboarding request is associated with this account.', 404);
+  const readiness = await customerActivationReadiness(onboarding.id, access.user.id, env);
+  return json({ onboarding, readiness }, 200, headers);
+}
+
+async function saveCustomerActivationReadiness(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  if (access.platformRole || access.memberships.length) throw new AccessError('Customer activation readiness is unavailable for this account.', 403);
+  const body = await request.json().catch(() => { throw new AccessError('Invalid activation readiness request.', 400); });
+  const onboarding = await customerOnboardingRecord(access.user.id, env);
+  const editableStatuses = new Set(['payment_pending', 'payment_submitted', 'connection_pending', 'connection_ready']);
+  if (!onboarding || !editableStatuses.has(onboarding.status)) throw new AccessError('This onboarding request is not open for activation readiness.', 409);
+  const serviceSummary = publicText(body.service_summary, 'Service summary', 20, 600);
+  const operatingHours = publicText(body.operating_hours, 'Operating hours', 2, 240);
+  const handoffEmail = normalizeEmail(body.handoff_email);
+  if (body.opt_in_acknowledged !== true) throw new AccessError('Confirm that your business will collect and honor messaging opt-in and opt-out requests.', 400);
+  await env.MAQVORA_DB.prepare(`
+    INSERT INTO customer_activation_readiness (onboarding_request_id, user_id, service_summary, operating_hours, handoff_email, opt_in_acknowledged_at, status)
+    VALUES (?, ?, ?, ?, ?, datetime('now'), 'submitted')
+    ON CONFLICT(onboarding_request_id) DO UPDATE SET
+      service_summary = excluded.service_summary,
+      operating_hours = excluded.operating_hours,
+      handoff_email = excluded.handoff_email,
+      opt_in_acknowledged_at = datetime('now'),
+      status = 'submitted',
+      updated_at = datetime('now')
+  `).bind(onboarding.id, access.user.id, serviceSummary, operatingHours, handoffEmail).run();
+  await auditEvent(env, { actorUserId: access.user.id, action: 'customer.activation_readiness_submitted', requestId, request, details: { onboarding_id: onboarding.id, credential_collection: false } });
+  return json({ ok: true, readiness_status: 'submitted', message: 'Activation readiness saved for private owner review.' }, 200, headers);
+}
+
+async function submitCustomerOnboardingPayment(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  if (access.platformRole) throw new AccessError('Customer onboarding access only.', 403);
+  const body = await request.json().catch(() => { throw new AccessError('Invalid payment submission.', 400); });
+  const reference = publicText(body.payment_reference, 'Payment reference', 3, 160);
+  const current = await customerOnboardingRecord(access.user.id, env);
+  if (!current || current.status !== 'payment_pending') throw new AccessError('This onboarding request is not ready for a payment reference.', 409);
+  const submitted = await env.MAQVORA_DB.prepare(`
+    UPDATE customer_onboarding_requests
+    SET payment_reference = ?, payment_submitted_at = datetime('now'), status = 'payment_submitted', updated_at = datetime('now')
+    WHERE id = ? AND user_id = ? AND status = 'payment_pending'
+  `).bind(reference, current.id, access.user.id).run();
+  if (!submitted.meta?.changes) throw new AccessError('This payment request has already changed. Refresh and try again.', 409);
+  await auditEvent(env, { actorUserId: access.user.id, action: 'customer.onboarding_payment_submitted', requestId, request, details: { onboarding_id: current.id } });
+  return json({ ok: true, status: 'payment_submitted', message: 'Your payment reference is awaiting Maqtomate owner review.' }, 200, headers);
+}
+
+async function ownerCustomerOnboardingRequests(request, env, headers, requestId) {
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const status = String(new URL(request.url).searchParams.get('status') || 'all');
+  const allowed = new Set(['email_verification_required', 'payment_pending', 'payment_submitted', 'connection_pending', 'connection_ready', 'active', 'rejected', 'cancelled', 'all']);
+  if (!allowed.has(status)) throw new AccessError('Invalid onboarding status.', 400);
+  const filter = status === 'all' ? '' : 'WHERE o.status = ?';
+  const rows = await env.MAQVORA_DB.prepare(`
+    SELECT o.id, o.business_name, o.country, o.requested_offer, o.requested_ai_mode, o.status,
+           o.expected_setup_amount, o.currency, o.payment_reference, o.payment_submitted_at,
+           o.review_note, o.tenant_client_id, o.created_at, o.updated_at, u.email,
+           r.status AS readiness_status, r.updated_at AS readiness_updated_at
+    FROM customer_onboarding_requests o JOIN users u ON u.id = o.user_id
+    LEFT JOIN customer_activation_readiness r ON r.onboarding_request_id = o.id AND r.user_id = o.user_id
+    ${filter} ORDER BY CASE o.status WHEN 'payment_submitted' THEN 0 WHEN 'connection_pending' THEN 1 ELSE 2 END, o.created_at DESC LIMIT 100
+  `).bind(...(status === 'all' ? [] : [status])).all();
+  await auditEvent(env, { actorUserId: access.user.id, actorRole: access.platformRole, action: 'owner.customer_onboarding_queue_viewed', requestId, request, details: { status } });
+  return json({ onboarding_requests: rows.results || [] }, 200, headers);
+}
+
+async function reviewCustomerOnboardingRequest(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  const access = await requireSession(request, env);
+  requirePlatform(access, ['owner']);
+  const parts = new URL(request.url).pathname.split('/');
+  const onboardingId = Number(parts[4]);
+  const decision = String(parts[5] || '');
+  if (!Number.isInteger(onboardingId) || onboardingId < 1 || !['approve', 'reject', 'activate'].includes(decision)) throw new AccessError('Invalid onboarding review request.', 400);
+  const body = await request.json().catch(() => ({}));
+  const note = String(body.note || '').trim().slice(0, 1000);
+  const onboarding = await env.MAQVORA_DB.prepare(`
+    SELECT id, user_id, requested_ai_mode, status FROM customer_onboarding_requests WHERE id = ?
+  `).bind(onboardingId).first();
+  if (!onboarding) throw new AccessError('Customer onboarding request not found.', 404);
+  if (decision === 'reject') {
+    if (!['payment_pending', 'payment_submitted', 'connection_pending', 'connection_ready'].includes(onboarding.status)) throw new AccessError('This onboarding request cannot be rejected from its current state.', 409);
+    await env.MAQVORA_DB.prepare(`UPDATE customer_onboarding_requests SET status = 'rejected', reviewed_at = datetime('now'), reviewed_by_user_id = ?, review_note = ?, updated_at = datetime('now') WHERE id = ?`).bind(access.user.id, note || 'Request was not approved.', onboarding.id).run();
+    await auditEvent(env, { actorUserId: access.user.id, actorRole: access.platformRole, action: 'owner.customer_onboarding_rejected', requestId, request, details: { onboarding_id: onboarding.id } });
+    return json({ ok: true, status: 'rejected' }, 200, headers);
+  }
+  if (decision === 'approve') {
+    if (onboarding.status !== 'payment_submitted') throw new AccessError('Only a submitted payment can be approved.', 409);
+    await env.MAQVORA_DB.prepare(`UPDATE customer_onboarding_requests SET status = 'connection_pending', reviewed_at = datetime('now'), reviewed_by_user_id = ?, review_note = ?, updated_at = datetime('now') WHERE id = ? AND status = 'payment_submitted'`).bind(access.user.id, note || 'Payment verified. Managed official connection review can begin.', onboarding.id).run();
+    await auditEvent(env, { actorUserId: access.user.id, actorRole: access.platformRole, action: 'owner.customer_onboarding_payment_approved', requestId, request, details: { onboarding_id: onboarding.id } });
+    return json({ ok: true, status: 'connection_pending' }, 200, headers);
+  }
+  if (!['connection_pending', 'connection_ready'].includes(onboarding.status)) throw new AccessError('This onboarding request is not ready for tenant activation.', 409);
+  const clientId = Number(body.tenant_client_id);
+  if (!Number.isInteger(clientId) || clientId < 1) throw new AccessError('Provide the active connected customer tenant ID before activation.', 400);
+  const expectedMode = onboarding.requested_ai_mode === 'customer_byok' ? 1 : 2;
+  const client = await env.MAQVORA_DB.prepare(`
+    SELECT id, business_name FROM clients
+    WHERE id = ? AND active = 1 AND client_mode = ? AND business_name != 'Maqtomate Owner Test Tenant'
+  `).bind(clientId, expectedMode).first();
+  if (!client) throw new AccessError('The selected tenant is not an active customer-owned connection with the requested AI mode.', 409);
+  await env.MAQVORA_DB.batch([
+    env.MAQVORA_DB.prepare(`UPDATE customer_onboarding_requests SET status = 'active', tenant_client_id = ?, reviewed_at = datetime('now'), reviewed_by_user_id = ?, review_note = ?, updated_at = datetime('now') WHERE id = ?`).bind(client.id, access.user.id, note || 'Managed connection approved and customer dashboard activated.', onboarding.id),
+    env.MAQVORA_DB.prepare(`INSERT INTO tenant_memberships (user_id, client_id, role, status) VALUES (?, ?, 'customer_admin', 'active') ON CONFLICT(user_id, client_id) DO UPDATE SET role = 'customer_admin', status = 'active', updated_at = datetime('now')`).bind(onboarding.user_id, client.id)
+  ]);
+  await auditEvent(env, { actorUserId: access.user.id, actorRole: access.platformRole, clientId: client.id, action: 'owner.customer_onboarding_activated', requestId, request, details: { onboarding_id: onboarding.id, requested_ai_mode: onboarding.requested_ai_mode } });
+  return json({ ok: true, status: 'active', tenant_client_id: client.id }, 200, headers);
+}
+
 function loginHTML(env) {
-  const siteKey = String(env.TURNSTILE_SITEKEY || '');
-  const turnstileScript = siteKey ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>' : '';
-  const turnstileWidget = siteKey ? '<div id="turnstile" style="margin:12px 0"></div>' : '';
-  const useTurnstile = siteKey ? 'true' : 'false';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button{box-sizing:border-box;display:block;width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Use your approved business email to receive a one-time sign-in link. Your dashboard opens only when your account has been approved for Maqtomate access.</p><form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
+  return accountShell('Secure customer sign-in', 'Use your business email and password. Customer access stays separate from the private Owner Console.', `<form id="login-form"><label>Business email<input id="email" type="email" autocomplete="email" required placeholder="you@business.com"></label><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button id="submit">Sign in securely</button><p class="small"><a href="/signup">Create a customer account</a> · <a href="#" id="forgot">Forgot password?</a></p><div id="note" class="notice" aria-live="polite"></div></form>`, `<script>const f=document.querySelector('#login-form'),n=document.querySelector('#note'),b=document.querySelector('#submit');f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Signing in…';try{const r=await fetch('/auth/password-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,password:document.querySelector('#password').value})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Sign-in failed.');location.href=d.redirect||'/dashboard'}catch(e){n.textContent=e.message||'Unable to sign in.'}finally{b.disabled=false}});document.querySelector('#forgot').addEventListener('click',async e=>{e.preventDefault();const email=document.querySelector('#email').value;if(!email){n.textContent='Enter your email first, then choose Forgot password.';return}n.textContent='Requesting reset instructions…';try{const r=await fetch('/auth/password-forgot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});const d=await r.json();n.textContent=d.message||'If eligible, instructions will be sent.'}catch(_){n.textContent='Unable to request a reset right now.'}});</script>`);
+}
+
+function accountShell(title, intro, content, script = '') {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>${escapeHtml(title)} — Maqtomate</title><style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:radial-gradient(circle at 72% 12%,#1f746036,transparent 24%),#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{width:min(460px,calc(100vw - 36px));padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:6px 0 8px;font-size:30px;letter-spacing:-.04em}p{color:#b7d0c8;line-height:1.55}.eyebrow{font-size:12px;color:#62e8b8;font-weight:700;letter-spacing:.08em}.small{font-size:13px}.small a{color:#79f0c6}.notice{min-height:24px;font-size:14px;color:#f6d28b}label{display:grid;gap:7px;margin:14px 0;font-size:13px;font-weight:700}input,select,textarea{box-sizing:border-box;width:100%;padding:14px;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font:inherit}textarea{min-height:110px;resize:vertical}button{box-sizing:border-box;display:block;width:100%;margin-top:18px;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer}button:disabled{opacity:.6}.status{border:1px solid #2d6659;border-radius:12px;background:#082018;padding:15px;margin:18px 0}.status b{display:block;color:#8ff3d8;margin-bottom:5px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:520px){.grid{grid-template-columns:1fr}.card{padding:26px}}</style></head><body><main class="card"><div class="eyebrow">MAQTOMATE CUSTOMER ACCESS</div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(intro)}</p>${content}</main>${script}</body></html>`;
+}
+
+function signupHTML(googleConfigured) {
+  const google = googleConfigured ? `<a class="google-button" href="/auth/customer/google">Continue with Google</a><p class="small">Google verifies the Gmail/business email identity. On the next page, the customer creates their own Maqtomate password.</p>` : `<div class="notice">Customer Google sign-in is not configured yet. Please request a managed rollout review.</div>`;
+  return accountShell('Create your customer account', 'Use Google to verify your business email, then choose your own Maqtomate password. Payment approval and official connection review happen before a customer dashboard is activated.', `${google}<p class="small">Already have a Maqtomate password? <a href="/login">Sign in</a></p><p class="small">Your business will use its own official WhatsApp/Meta assets during the managed connection process. Never enter a Meta token, WhatsApp password, OTP, or personal number here.</p>`);
+}
+
+function customerOnboardingSetupHTML(email) {
+  const form = `<form id="onboarding-setup-form"><section class="status"><b>Verified Google identity</b><span>${escapeHtml(email)}</span></section><div class="grid"><label>Business name<input id="business_name" required maxlength="120" autocomplete="organization"></label><label>Country or region<input id="country" required maxlength="80" placeholder="Pakistan" autocomplete="country-name"></label></div><div class="grid"><label>Choose offer<select id="requested_offer"><option value="managed_launch">Managed Launch</option><option value="custom_rollout">Custom Business Rollout</option></select></label><label>Gemini mode<select id="requested_ai_mode"><option value="customer_byok">Customer Gemini BYOK</option><option value="managed_ai">Managed Gemini allowance</option></select></label></div><label>Create Maqtomate password<input id="password" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input id="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label><p class="small">Your selected Gemini mode is a commercial preference. The live platform enforces the allowed mode server-side only after owner approval. Your business always uses its own official Meta/WhatsApp assets—never Maqtomate owner credentials.</p><button id="submit">Save account and continue to payment review</button><div id="note" class="notice" aria-live="polite"></div></form>`;
+  const script = `<script>const f=document.querySelector('#onboarding-setup-form'),n=document.querySelector('#note'),b=document.querySelector('#submit');f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Saving secure customer setup…';const data={business_name:document.querySelector('#business_name').value,country:document.querySelector('#country').value,requested_offer:document.querySelector('#requested_offer').value,requested_ai_mode:document.querySelector('#requested_ai_mode').value,password:document.querySelector('#password').value,confirm_password:document.querySelector('#confirm_password').value};try{const r=await fetch('/api/customer/onboarding/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Customer setup could not be saved.');location.href=d.redirect||'/onboarding'}catch(e){n.textContent=e.message||'Unable to save customer setup.'}finally{b.disabled=false}});</script>`;
+  return accountShell('Finish your customer setup', 'Your Google identity is verified. Create your Maqtomate password, select your customer-safe offer, and select the preferred Gemini cost mode.', form, script);
+}
+
+function passwordResetHTML(token) {
+  const form = `<form id="reset-form"><label>New password<input id="password" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirm new password<input id="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label><button id="submit">Update password</button><div id="note" class="notice" aria-live="polite"></div></form>`;
+  const script = `<script>const f=document.querySelector('#reset-form'),n=document.querySelector('#note'),b=document.querySelector('#submit'),token=${JSON.stringify(token)};f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Updating password…';try{const r=await fetch('/auth/password-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:document.querySelector('#password').value,confirm_password:document.querySelector('#confirm_password').value})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Password could not be updated.');n.textContent=d.message||'Password updated.';setTimeout(()=>location.href='/login',900)}catch(e){n.textContent=e.message||'Unable to update password.'}finally{b.disabled=false}});</script>`;
+  return accountShell('Choose a new password', 'Use a new password with at least 12 characters. All active sessions will be signed out after this change.', form, script);
+}
+
+function customerOnboardingHTML(onboarding, readiness = null) {
+  const statusLabels = { payment_pending: 'Payment pending', payment_submitted: 'Payment review in progress', connection_pending: 'Managed official connection in progress', connection_ready: 'Ready for activation', active: 'Dashboard active', rejected: 'Request not approved', cancelled: 'Request cancelled' };
+  const status = statusLabels[onboarding.status] || onboarding.status;
+  const amount = Number(onboarding.expected_setup_amount || 0);
+  const paymentForm = onboarding.status === 'payment_pending' ? `<form id="payment-form"><label>Payment reference<input id="payment_reference" required maxlength="160" placeholder="Transaction or receipt reference"></label><button id="submit">Submit payment for review</button><div id="note" class="notice" aria-live="polite"></div></form>` : '';
+  const readinessAllowed = ['payment_pending', 'payment_submitted', 'connection_pending', 'connection_ready'].includes(onboarding.status);
+  const readinessForm = readinessAllowed && !readiness ? `<form id="readiness-form"><section class="status"><b>Activation readiness</b><span>Prepare the minimum approved business context for private owner review. This does not activate a tenant or request any provider credential.</span></section><label>Service summary<textarea id="service_summary" required maxlength="600" placeholder="What should the AI Employee help your customers with?"></textarea></label><label>Operating hours<textarea id="operating_hours" required maxlength="240" placeholder="For example: Monday–Saturday, 09:00–18:00 PKT"></textarea></label><label>Human-handoff email<input id="handoff_email" type="email" required maxlength="254" autocomplete="email" placeholder="team@yourbusiness.com"></label><label class="small"><input id="opt_in_acknowledged" type="checkbox" required style="width:auto;margin-right:8px">I confirm my business will collect and honor clear WhatsApp messaging opt-in and opt-out requests.</label><button id="readiness-submit" type="submit">Save activation readiness</button><div id="readiness-note" class="notice" aria-live="polite"></div></form>` : `<section class="status"><b>Activation readiness</b><span>${readiness ? `Submitted for private owner review on ${escapeHtml(readiness.updated_at || readiness.created_at)}.` : 'Available when the onboarding request is open for readiness review.'}</span></section>`;
+  const script = `<script>const paymentForm=document.querySelector('#payment-form');if(paymentForm){const n=document.querySelector('#note'),b=paymentForm.querySelector('#submit');paymentForm.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Submitting for review…';try{const r=await fetch('/api/customer/onboarding/payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payment_reference:document.querySelector('#payment_reference').value})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Payment reference could not be submitted.');location.reload()}catch(e){n.textContent=e.message||'Unable to submit payment reference.'}finally{b.disabled=false}})}const readinessForm=document.querySelector('#readiness-form');if(readinessForm){const n=document.querySelector('#readiness-note'),b=document.querySelector('#readiness-submit');readinessForm.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Saving activation readiness…';const data={service_summary:document.querySelector('#service_summary').value,operating_hours:document.querySelector('#operating_hours').value,handoff_email:document.querySelector('#handoff_email').value,opt_in_acknowledged:document.querySelector('#opt_in_acknowledged').checked};try{const r=await fetch('/api/customer/onboarding/readiness',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Activation readiness could not be saved.');location.reload()}catch(e){n.textContent=e.message||'Unable to save activation readiness.'}finally{b.disabled=false}})}</script>`;
+  const amountText = amount ? `${escapeHtml(onboarding.currency)} ${amount.toLocaleString()} setup review` : 'Scope and setup amount confirmed after review';
+  return accountShell('Your managed rollout', 'Your account is separate from the private Owner Console. Your dashboard opens only after payment approval and the official managed connection is ready.', `<section class="status"><b>${escapeHtml(status)}</b><span>${escapeHtml(onboarding.review_note || 'We will keep official connection and technical setup separate from your day-to-day team workflow.')}</span></section><div class="grid"><section class="status"><b>Selected offer</b><span>${escapeHtml(onboarding.requested_offer === 'managed_launch' ? 'Managed Launch' : 'Custom Business Rollout')}</span></section><section class="status"><b>Gemini mode</b><span>${escapeHtml(onboarding.requested_ai_mode === 'customer_byok' ? 'Customer Gemini BYOK' : 'Managed Gemini allowance')}</span></section></div><section class="status"><b>Payment status</b><span>${amountText}</span></section>${readinessForm}${paymentForm}<p class="small">Maqtomate never asks for a Meta password, Meta token, WhatsApp password, OTP, personal number, or Gemini API key in this account flow.</p><p class="small"><a href="/">Back to Maqtomate overview</a> · <a href="/auth/logout" onclick="event.preventDefault();fetch('/auth/logout',{method:'POST'}).then(()=>location.href='/login')">Sign out</a></p>`, script);
 }
 
 const MARKETING_PATHS = new Set([
@@ -1569,7 +2095,7 @@ function marketingSiteHTML(path) {
   const useCases = `<a href="/use-cases/real-estate">Real estate</a><a href="/use-cases/clinics">Clinics</a><a href="/use-cases/salons">Salons</a><a href="/use-cases/education">Education</a><a href="/use-cases/ecommerce">E-commerce</a>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111d"><meta name="description" content="Maqtomate is a managed WhatsApp AI Employee for official Meta Cloud API customer conversations, voice-note operations, lead qualification and supervised human handoff."><title>${escapeHtml(stripTags(page.title))} — Maqtomate</title><style>
     :root{--bg:#07111d;--panel:#0d1726;--ink:#edf6fb;--muted:#9badc1;--line:#ffffff17;--mint:#8ff3d8;--mint2:#2bd5b6}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(circle at 8% 0,#13405577,transparent 31%),radial-gradient(circle at 92% 18%,#0e725d33,transparent 24%),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.nav{position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line);background:#07111de8;backdrop-filter:blur(16px)}.navin,.wrap{max-width:1180px;margin:auto;padding:0 22px}.navin{height:70px;display:flex;align-items:center;justify-content:space-between;gap:18px}.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:850;letter-spacing:-.04em}.mark{display:grid;place-items:center;width:29px;height:29px;border-radius:9px;background:linear-gradient(135deg,#b7f8e0,#39d9bd);color:#063127;font-size:12px}.navlinks{display:flex;gap:18px;align-items:center}.navlinks a{color:#b5c3d2;text-decoration:none;font-size:13px;font-weight:650}.navlinks a:hover{color:#fff}.navcta,.button{display:inline-flex;align-items:center;justify-content:center;border-radius:10px;background:linear-gradient(135deg,#9af4db,#31d8bb);color:#063127;text-decoration:none;font-size:13px;font-weight:850;padding:11px 15px;box-shadow:0 9px 26px #21d4b025}.hero{position:relative;overflow:hidden;padding:clamp(66px,12vw,142px) 0 74px}.hero:after{content:"";position:absolute;right:-110px;top:54px;width:430px;height:430px;border-radius:999px;border:1px solid #a9f9e21d;box-shadow:0 0 0 48px #8ff3d805,0 0 0 96px #8ff3d803}.hero-grid{position:relative;z-index:1;display:grid;grid-template-columns:1.08fr .92fr;gap:46px;align-items:center}.eyebrow{color:var(--mint);font-size:10px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}.hero h1{max-width:720px;margin:15px 0 0;font-size:clamp(46px,7vw,82px);line-height:.93;letter-spacing:-.075em}.hero h1 em{font-style:normal;color:var(--mint)}.hero p{max-width:610px;margin:22px 0 0;color:#b2c0d0;line-height:1.65;font-size:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:27px}.ghost{display:inline-flex;align-items:center;justify-content:center;border:1px solid #8ff3d84b;border-radius:10px;color:#cbfff1;text-decoration:none;font-size:13px;font-weight:800;padding:11px 15px;background:#36dfbd0d}.trustline{display:flex;flex-wrap:wrap;gap:8px;margin-top:21px}.trustline span{border:1px solid #ffffff1a;border-radius:999px;color:#a9bdca;padding:6px 9px;background:#0e1c2c8c;font-size:10px;font-weight:700}.product-card{position:relative;border:1px solid #7ef0d93d;border-radius:22px;padding:18px;background:linear-gradient(145deg,#11263a,#091320);box-shadow:0 25px 65px #0008}.window{border:1px solid #ffffff12;border-radius:15px;background:#06101b;overflow:hidden}.windowbar{display:flex;justify-content:space-between;padding:11px 13px;border-bottom:1px solid #ffffff12;color:#93a7bb;font-size:10px}.dots i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:4px;background:#ffcb6b}.thread{padding:15px;display:grid;gap:10px}.bubble{max-width:88%;border-radius:11px;padding:11px 12px;color:#b9c9d8;font-size:11px;line-height:1.45;background:#15253a}.bubble.you{margin-left:auto;background:#166f60;color:#d6fff5}.flow{display:grid;gap:9px;margin-top:13px}.flow div{display:flex;align-items:center;gap:9px;border:1px solid #ffffff10;border-radius:9px;padding:9px;color:#a8bacb;font-size:10px}.flow b{display:grid;place-items:center;width:19px;height:19px;border-radius:6px;background:#8ef2d630;color:#a4fee4;font-size:9px}.section{padding:78px 0;border-top:1px solid var(--line)}.section h2{max-width:760px;margin:12px 0 0;font-size:clamp(30px,5vw,54px);line-height:1;letter-spacing:-.06em}.section>p{max-width:680px;color:#9fb0c3;line-height:1.65}.capgrid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:28px}.cap{min-height:180px;border:1px solid var(--line);border-radius:15px;padding:17px;background:linear-gradient(145deg,#101d2f,#0a1421)}.cap>span{color:#83f2d7;font-size:10px;font-weight:800;letter-spacing:.1em}.cap h3{margin:26px 0 7px;font-size:15px;line-height:1.18;letter-spacing:-.025em}.cap p{margin:0;color:#7f93a9;font-size:11px;line-height:1.55}.proof{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}.proof article{border:1px solid var(--line);border-radius:18px;padding:24px;background:#0b1624}.proof h3{margin:0;font-size:22px;letter-spacing:-.04em}.proof p{color:#9eb0c1;line-height:1.6;font-size:13px}.list{display:grid;gap:10px;margin-top:17px}.list div{display:flex;gap:9px;color:#c7d5e2;font-size:12px;line-height:1.45}.list i{display:grid;place-items:center;flex:0 0 19px;height:19px;border-radius:6px;background:#4de2bf1b;color:#9effe4;font-style:normal;font-size:10px}.usecases{display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.usecases a{border:1px solid #ffffff1c;border-radius:999px;padding:8px 11px;color:#c4d2df;text-decoration:none;font-size:11px;font-weight:700}.usecases a:hover{border-color:#8ff3d870;color:#baffea}.cta{margin:0 0 80px;border:1px solid #8ff3d83a;border-radius:23px;padding:clamp(25px,6vw,58px);background:radial-gradient(circle at 90% 10%,#47e6c528,transparent 28%),linear-gradient(135deg,#10263a,#0b1523)}.cta h2{max-width:760px;margin:10px 0 0;font-size:clamp(30px,5vw,56px);line-height:.98;letter-spacing:-.06em}.cta p{max-width:660px;color:#aac0cf;line-height:1.6}.footer{border-top:1px solid var(--line);padding:32px 0 44px;color:#71859b;font-size:11px}.footerin{max-width:1180px;margin:auto;padding:0 22px;display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap}.footer a{color:#9fb5c5;text-decoration:none;margin-left:12px}.route-visual{position:relative;min-height:360px;border:1px solid #7ef0d955;border-radius:22px;padding:18px;background:radial-gradient(circle at 80% 18%,#3be5c82c,transparent 25%),linear-gradient(145deg,#10263a,#091320);box-shadow:0 25px 65px #0008;overflow:hidden}.route-visual:after{content:"";position:absolute;width:250px;height:250px;border:1px solid #8ff3d820;border-radius:50%;right:-120px;bottom:-110px;box-shadow:0 0 0 34px #8ff3d806,0 0 0 68px #8ff3d804}.visual-top{display:flex;align-items:center;gap:6px;border-bottom:1px solid #ffffff12;padding:1px 0 12px;color:#94aabd;font-size:10px;letter-spacing:.04em}.visual-top span{margin-right:auto}.visual-top i{width:6px;height:6px;border-radius:50%;background:#f2c86d}.route-visual h3{position:relative;z-index:1;max-width:340px;margin:21px 0 18px;font-size:27px;line-height:1.03;letter-spacing:-.055em}.visual-note{position:relative;z-index:1;margin:17px 0 0;color:#9fb6c4;font-size:11px;line-height:1.55}.visual-flow{position:relative;z-index:1;display:grid;gap:9px}.visual-connector{display:block;height:10px;width:1px;margin-left:20px;background:linear-gradient(#8ff3d8,#8ff3d822)}.visual-step{display:flex;align-items:center;gap:9px;border:1px solid #ffffff12;border-radius:11px;background:#07121eee;padding:12px;color:#aebfcb;font-size:11px}.visual-step.active{border-color:#8ff3d872;background:#176e5b3b;color:#d6fff4}.visual-step b{display:grid;place-items:center;flex:0 0 22px;height:22px;border-radius:7px;background:#8ff3d822;color:#9affdf;font-size:9px}.route-security .visual-flow{gap:7px}.route-security .visual-step{padding:10px}.route-resources .visual-flow{grid-template-columns:1fr 1fr}.route-resources .visual-connector{display:none}.route-pricing .visual-step.active{background:#176e5b44}.route-command .visual-step:first-child{margin-left:10px}.route-command .visual-step:last-child{margin-left:30px}@media(prefers-reduced-motion:no-preference){.route-visual .visual-step.active{animation:maqtomateGlow 4.6s ease-in-out infinite}}@keyframes maqtomateGlow{50%{transform:translateX(3px);border-color:#b9ffe8}}@media(max-width:900px){.hero-grid,.proof{grid-template-columns:1fr}.product-card{max-width:600px}.capgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.navlinks{display:none}}@media(max-width:520px){.navin,.wrap{padding-left:15px;padding-right:15px}.navin{height:62px}.navcta{padding:9px 10px;font-size:11px}.hero{padding:58px 0}.hero h1{font-size:44px}.capgrid{grid-template-columns:1fr}.section{padding:55px 0}.cta{margin-bottom:55px}.footerin{padding:0 15px}}
-  </style></head><body><header class="nav"><div class="navin"><a class="brand" href="/"><span class="mark">M</span>Maqtomate</a><nav class="navlinks"><a href="/product">Product</a><a href="/how-it-works">How it works</a><a href="/use-cases">Use cases</a><a href="/security">Security</a><a href="/resources">Resources</a></nav><a class="navcta" href="/connect">Plan your AI Employee</a></div></header><main><section class="hero"><div class="wrap hero-grid"><div><span class="eyebrow">${escapeHtml(page.eyebrow)}</span><h1>${page.title}</h1><p>${escapeHtml(page.intro)}</p><div class="actions"><a class="button" href="/connect">Plan your AI Employee</a><a class="ghost" href="/how-it-works">See the managed workflow</a></div><div class="trustline"><span>Official Meta Cloud API only</span><span>Tenant-isolated operations</span><span>Human handoff built in</span></div></div>${routeVisual(path)}</div></section><section class="section"><div class="wrap"><span class="eyebrow">${escapeHtml(page.label)}</span><h2>${escapeHtml(page.kicker)}</h2><p>Maqtomate is built around the work that should happen after a customer message arrives. Every public claim is tied to an implemented or supervised capability—not a generic automation promise.</p><div class="capgrid">${cards}</div></div></section><section class="section"><div class="wrap proof"><article><span class="eyebrow">The customer journey</span><h3>From conversation to a decision your team can use.</h3><div class="list"><div><i>01</i><span>Customer messages or voice notes begin the interaction.</span></div><div><i>02</i><span>Approved business context shapes the response.</span></div><div><i>03</i><span>Useful qualification details prepare the right next step.</span></div><div><i>04</i><span>Complex cases hand over with conversation history.</span></div></div></article><article><span class="eyebrow">Managed connection</span><h3>Your team should run the business, not the developer dashboard.</h3><p>Maqtomate’s rollout keeps credentials, tokens, webhook configuration, and technical controls out of the customer’s day-to-day workflow.</p><div class="list"><div><i>✓</i><span>No customer API tokens or developer credentials requested.</span></div><div><i>✓</i><span>Personal WhatsApp numbers are not business sender defaults.</span></div><div><i>✓</i><span>Official API and supervised activation remain at the core.</span></div></div></article></div></section><section class="section"><div class="wrap"><span class="eyebrow">Built around real teams</span><h2>Choose the enquiry your business cannot afford to lose.</h2><p>Use-case workflows start with the details a human team needs next. They are configured around your rules, not copied from another business.</p><div class="usecases">${useCases}</div></div></section><section class="wrap cta"><span class="eyebrow">Ready to make WhatsApp operational?</span><h2>Design the AI Employee your team can supervise with confidence.</h2><p>Start with your customer journey, knowledge sources, escalation rules, and the business outcome you want to protect.</p><div class="actions"><a class="button" href="/connect">Plan a managed rollout</a><a class="ghost" href="/login">Secure portal sign-in</a></div></section></main><footer class="footer"><div class="footerin"><span>© ${new Date().getFullYear()} Maqtomate · Managed WhatsApp AI Employee</span><span><a href="/security">Security</a><a href="/resources">Resources</a><a href="/login">Sign in</a></span></div></footer></body></html>`;
+  </style></head><body><header class="nav"><div class="navin"><a class="brand" href="/"><span class="mark">M</span>Maqtomate</a><nav class="navlinks"><a href="/product">Product</a><a href="/how-it-works">How it works</a><a href="/use-cases">Use cases</a><a href="/pricing">Pricing</a><a href="/security">Security</a><a href="/resources">Resources</a></nav><a class="navcta" href="/pricing">View plans</a></div></header><main><section class="hero"><div class="wrap hero-grid"><div><span class="eyebrow">${escapeHtml(page.eyebrow)}</span><h1>${page.title}</h1><p>${escapeHtml(page.intro)}</p><div class="actions"><a class="button" href="/connect">Plan your AI Employee</a><a class="ghost" href="/how-it-works">See the managed workflow</a></div><div class="trustline"><span>Official Meta Cloud API only</span><span>Tenant-isolated operations</span><span>Human handoff built in</span></div></div>${routeVisual(path)}</div></section><section class="section"><div class="wrap"><span class="eyebrow">${escapeHtml(page.label)}</span><h2>${escapeHtml(page.kicker)}</h2><p>Maqtomate is built around the work that should happen after a customer message arrives. Every public claim is tied to an implemented or supervised capability—not a generic automation promise.</p><div class="capgrid">${cards}</div></div></section><section class="section"><div class="wrap proof"><article><span class="eyebrow">The customer journey</span><h3>From conversation to a decision your team can use.</h3><div class="list"><div><i>01</i><span>Customer messages or voice notes begin the interaction.</span></div><div><i>02</i><span>Approved business context shapes the response.</span></div><div><i>03</i><span>Useful qualification details prepare the right next step.</span></div><div><i>04</i><span>Complex cases hand over with conversation history.</span></div></div></article><article><span class="eyebrow">Managed connection</span><h3>Your team should run the business, not the developer dashboard.</h3><p>Maqtomate’s rollout keeps credentials, tokens, webhook configuration, and technical controls out of the customer’s day-to-day workflow.</p><div class="list"><div><i>✓</i><span>No customer API tokens or developer credentials requested.</span></div><div><i>✓</i><span>Personal WhatsApp numbers are not business sender defaults.</span></div><div><i>✓</i><span>Official API and supervised activation remain at the core.</span></div></div></article></div></section><section class="section"><div class="wrap"><span class="eyebrow">Built around real teams</span><h2>Choose the enquiry your business cannot afford to lose.</h2><p>Use-case workflows start with the details a human team needs next. They are configured around your rules, not copied from another business.</p><div class="usecases">${useCases}</div></div></section><section class="wrap cta"><span class="eyebrow">Ready to make WhatsApp operational?</span><h2>Design the AI Employee your team can supervise with confidence.</h2><p>Start with your customer journey, knowledge sources, escalation rules, and the business outcome you want to protect.</p><div class="actions"><a class="button" href="/connect">Plan a managed rollout</a><a class="ghost" href="/login">Secure portal sign-in</a></div></section></main><footer class="footer"><div class="footerin"><span>© ${new Date().getFullYear()} Maqtomate · Managed WhatsApp AI Employee</span><span><a href="/pricing">Pricing</a><a href="/security">Security</a><a href="/resources">Resources</a><a href="/login">Sign in</a></span></div></footer></body></html>`;
 }
 
 function connectIntakeHTML() {
@@ -1620,6 +2146,7 @@ function ownerConsoleHTML(user, overview, testTenant, runtimeDiagnostics = { ava
     ? Object.entries(diagnosticLabels).map(([key, label]) => `<div><span>${label}</span><b class="${healthyDiagnostic(runtimeDiagnostics.checks?.[key]) ? 'ok' : 'attention'}">${escapeHtml(runtimeDiagnostics.checks?.[key] || 'UNAVAILABLE')}</b></div>`).join('')
     : `<div><span>Diagnostic bridge</span><b class="attention">UNAVAILABLE</b></div>`;
   const runtimePanel = `<section class="sender-card" style="margin-top:16px"><div class="section-head"><div><span class="kicker">Runtime credential diagnostics</span><h2>Configuration status, not values</h2></div><span class="pill">Owner-only</span></div><p class="summary">Each check returns a coarse runtime state only. API keys, encrypted token material, secrets, and provider error details never enter this page, browser logs, or audit records.</p><div class="state-grid">${diagnosticCards}</div></section>`;
+  const onboardingPanel = `<section class="sender-card" style="margin-top:16px"><div class="section-head"><div><span class="kicker">Customer onboarding review</span><h2>Payment-approved activation queue</h2></div><button class="secondary" type="button" onclick="loadCustomerOnboardingQueue()">Refresh queue</button></div><p class="summary">Customer accounts remain pre-tenant until you approve payment and later attach a real active customer-owned official connection. No owner Meta credential, personal WhatsApp, or secret is assigned to a customer.</p><div id="customer-onboarding-queue" class="state-grid"><div style="grid-column:1/-1"><span>Queue</span><b>Loading secure review queue…</b></div></div><div id="customer-onboarding-note" class="rule"></div></section>`;
   const controlledTestAction = tokenValid ? `<form method="post" action="/owner/test-tenant/send-controlled-test"><button class="secondary" type="submit">Send controlled test to private recipient</button></form>` : '';
   const tenantPanel = testTenant
     ? `<section class="sender-card"><div class="section-head"><div><span class="kicker">Owner test tenant</span><h2>${escapeHtml(testTenant.business_name)}</h2></div><span class="pill ${tokenClass}">${tokenValid ? 'Credential valid' : 'Activation in progress'}</span></div><p class="summary">A payment-exempt, customer-equivalent workspace that lets you run Maqtomate as the first verified customer without touching your personal WhatsApp account.</p><div class="state-grid"><div><span>Dedicated sender</span><b class="${senderFound ? 'ok' : 'attention'}">${escapeHtml(testTenant.phone_status || 'NOT_FOUND')}</b></div><div><span>Webhook route</span><b class="${webhookVerified ? 'ok' : 'attention'}">${escapeHtml(testTenant.webhook_status || 'NOT_CONFIGURED')}</b></div><div><span>Credential vault</span><b class="${tokenClass}">${escapeHtml(testTenant.token_status || 'NOT_AVAILABLE')}</b></div><div><span>Last controlled test</span><b>${testTenant.last_test_at ? 'Recorded' : 'Awaiting test'}</b></div></div><div class="safe-note"><strong>Personal-number boundary</strong><span>Your personal WhatsApp is a private recipient-only test destination. It is never registered, moved, disconnected, or used as an API sender.</span></div><div class="action-stack">${senderAction}${credentialAction}${renewalAction}${controlledTestAction}</div></section>`
@@ -1627,7 +2154,7 @@ function ownerConsoleHTML(user, overview, testTenant, runtimeDiagnostics = { ava
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07111d"><title>Maqtomate Owner Command</title><style>
     :root{--ink:#e8f1f8;--muted:#95a5b9;--dim:#64748b;--line:#ffffff17;--panel:#0d1726;--panel2:#101d2e;--teal:#83f5da;--teal2:#20c99a;--amber:#f6c15d;--bg:#07111d}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 12% 0,#123b4b88,transparent 31%),radial-gradient(circle at 100% 100%,#173b4b66,transparent 32%),var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.topbar{position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line);background:#07111de8;backdrop-filter:blur(18px)}.topbar-inner{max-width:1260px;margin:auto;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:14px}.brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.035em}.mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:linear-gradient(135deg,#a7f3d0,#39d8ba);color:#063028;font-size:12px}.brand small{display:block;color:#7cdac5;font-size:9px;font-weight:750;letter-spacing:.16em;text-transform:uppercase}.signout,button{font:inherit;cursor:pointer}.signout{border:1px solid #7ce1cc44;border-radius:9px;background:#ddfff533;color:#cbfff1;padding:9px 12px;font-size:12px;font-weight:700}.wrap{max-width:1260px;margin:auto;padding:30px 20px 48px}.hero{position:relative;overflow:hidden;border:1px solid #74dec12d;border-radius:22px;padding:clamp(24px,5vw,52px);background:radial-gradient(circle at 90% 10%,#28d8bb28,transparent 28%),linear-gradient(132deg,#11243a,#09121f 70%);box-shadow:0 26px 70px #0005}.hero:after{content:"";position:absolute;right:-75px;bottom:-110px;width:300px;height:300px;border:1px solid #9fffe621;border-radius:999px}.kicker{color:#82f4dc;font-size:10px;font-weight:800;letter-spacing:.15em;text-transform:uppercase}.hero h1{position:relative;max-width:760px;margin:12px 0 0;font-size:clamp(32px,5vw,62px);line-height:.96;letter-spacing:-.07em}.hero h1 em{font-style:normal;color:var(--teal)}.hero p{position:relative;max-width:600px;margin:18px 0 0;color:#aab8c9;line-height:1.65;font-size:14px}.hero-meta{position:relative;display:flex;flex-wrap:wrap;gap:9px;margin-top:25px}.hero-meta span,.pill{display:inline-flex;align-items:center;border:1px solid #7ce1cc33;border-radius:999px;padding:6px 9px;color:#b7f7e7;background:#32dfbd12;font-size:10px;font-weight:750}.pill.warn{border-color:#f6c15d45;background:#f6c15d12;color:#f8d58b}.pill.good{color:#a1f6d8}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.metric{border:1px solid var(--line);border-radius:16px;padding:16px;background:linear-gradient(145deg,#122238,#0b1422);box-shadow:0 14px 32px #0003}.metric span{display:flex;justify-content:space-between;color:#8d9db2;font-size:11px}.metric span i{display:block;width:6px;height:6px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px #44f2ce12}.metric b{display:block;margin-top:18px;font-size:25px;letter-spacing:-.045em}.metric small{display:block;margin-top:5px;color:#6e8098;font-size:10px}.command-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}.sender-card,.launch-card{border:1px solid var(--line);border-radius:18px;padding:22px;background:linear-gradient(145deg,#101e30,#0a1421);box-shadow:0 18px 45px #0003}.section-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.section-head h2,.launch-card h2{margin:6px 0 0;font-size:20px;letter-spacing:-.035em}.summary{max-width:680px;color:#9cacbf;font-size:13px;line-height:1.6}.state-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:18px 0}.state-grid div{padding:12px;border:1px solid #ffffff12;border-radius:11px;background:#03091450}.state-grid span{display:block;color:#718198;font-size:10px}.state-grid b{display:block;margin-top:5px;color:#dce8f3;font-size:12px;overflow-wrap:anywhere}.ok{color:#8df1d2!important}.attention,.warn{color:#f5ca76!important}.safe-note{display:grid;grid-template-columns:132px 1fr;gap:10px;border-left:2px solid var(--teal2);padding:10px 12px;background:#38e3c10d;color:#91a4b9;font-size:11px;line-height:1.55}.safe-note strong{color:#cbfff0}.action-stack{display:grid;gap:9px;margin-top:18px}.primary,.secondary{border-radius:10px;padding:11px 14px;font-size:12px;font-weight:800}.primary{border:0;background:linear-gradient(135deg,#89f2d7,#2dd7ba);color:#063028}.secondary{border:1px solid #85f1d350;background:#2de4c111;color:#bfffee}.renewal{display:grid;grid-template-columns:1fr auto;gap:8px;border-top:1px solid var(--line);padding-top:16px}.renewal label{grid-column:1/-1;color:#b9c8d8;font-size:11px;font-weight:700}.renewal input{min-width:0;border:1px solid #ffffff1c;border-radius:10px;background:#02081380;color:#fff;padding:11px 12px;font:inherit;font-size:12px;outline:0}.renewal input:focus{border-color:#72efd08c;box-shadow:0 0 0 3px #3be1c116}.renewal p{grid-column:1/-1;margin:0;color:#72839a;font-size:10px;line-height:1.45}.launch-card{position:relative;overflow:hidden}.launch-card:before{content:"";position:absolute;top:0;left:0;width:100%;height:2px;background:linear-gradient(90deg,var(--teal),transparent)}.launch-card p{margin:7px 0 15px;color:#94a5b8;font-size:12px;line-height:1.55}.stages{display:grid;gap:12px}.stage{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start}.stage:before{content:"";display:grid;place-items:center;width:21px;height:21px;border-radius:7px;border:1px solid #f4bf6055;background:#f4bf6014;color:#f8d58b;font-size:11px;font-weight:800}.stage:nth-child(1):before{content:"1"}.stage:nth-child(2):before{content:"2"}.stage:nth-child(3):before{content:"3"}.stage:nth-child(4):before{content:"4"}.stage.complete:before{border-color:#78efd077;background:#44e7c41a;color:#9ff8dc}.stage b{display:block;font-size:12px}.stage span{display:block;margin-top:3px;color:#718198;font-size:10px;line-height:1.45}.rule{margin-top:18px;border-top:1px solid var(--line);padding-top:14px;color:#8fa2b6;font-size:11px;line-height:1.55}.rule b{color:#d9e8f4}.fleet-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:16px}.fleet-strip div{border:1px solid #ffffff11;border-radius:12px;padding:13px;background:#07101b80}.fleet-strip span{color:#75869a;font-size:10px}.fleet-strip b{display:block;margin-top:5px;color:#e4f0fb;font-size:16px}@media(max-width:850px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.command-grid{grid-template-columns:1fr}.state-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.fleet-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:520px){.topbar-inner,.wrap{padding-left:14px;padding-right:14px}.hero{padding:23px 20px;border-radius:17px}.metrics{grid-template-columns:1fr}.state-grid,.fleet-strip{grid-template-columns:1fr}.safe-note{grid-template-columns:1fr}.renewal{grid-template-columns:1fr}.renewal .primary{width:100%}.signout{padding:8px 10px}.brand small{display:none}}
-  </style></head><body><header class="topbar"><div class="topbar-inner"><div class="brand"><span class="mark">M</span><div>Maqtomate<small>Owner command system</small></div></div><form method="post" action="/auth/logout"><button class="signout" type="submit">Sign out</button></form></div></header><main class="wrap"><section class="hero"><span class="kicker">Restricted production operations</span><h1>Command the <em>AI Employee fleet.</em></h1><p>Live control for tenant readiness, verified automation signals, and the owner-first activation path. All credentials remain encrypted behind server-side boundaries.</p><div class="hero-meta"><span>Owner verified: ${safeName}</span><span>Official Meta Cloud API only</span><span>Mobile-safe server rendering</span></div></section><section class="metrics"><article class="metric"><span>Active tenants<i></i></span><b>${metric(overview.active_tenants)}</b><small>Payment-approved production workspaces</small></article><article class="metric"><span>Platform users<i></i></span><b>${metric(overview.active_users)}</b><small>Owner and approved customer members</small></article><article class="metric"><span>Monthly revenue<i></i></span><b>Rs ${metric(overview.monthly_recurring_revenue)}</b><small>Live tenant monthly fee total</small></article><article class="metric"><span>Errors · 7 days<i></i></span><b>${metric(overview.errors_last_7_days)}</b><small>Operational events requiring review</small></article></section><section class="command-grid">${tenantPanel}<aside class="launch-card"><span class="kicker">Activation sequence</span><h2>Owner-first launch gate</h2><p>Complete this controlled path before any public customer onboarding.</p><div class="stages"><div class="${stageClass(Boolean(testTenant))}"><div><b>Payment-exempt tenant</b><span>${testTenant ? 'Internal customer-equivalent workspace is active.' : 'Create the internal owner workspace first.'}</span></div></div><div class="${stageClass(senderFound && webhookVerified)}"><div><b>Dedicated Maqtomate sender</b><span>${senderFound && webhookVerified ? 'Phone and webhook attachment confirmed.' : 'Use the Maqtomate-owned sender only.'}</span></div></div><div class="${stageClass(tokenValid)}"><div><b>Encrypted Meta credential</b><span>${tokenValid ? 'Stored and validated in the tenant vault.' : 'Fresh token is required before messages can be sent.'}</span></div></div><div class="${stageClass(false)}"><div><b>Controlled WhatsApp proof</b><span>Dedicated sender → Worker → Gemini → private recipient test still requires recorded success.</span></div></div></div><div class="rule"><b>Non-negotiable:</b> Your personal WhatsApp remains a private recipient-only test destination. It is never registered as the business sender.</div></aside></section>${runtimePanel}<section class="fleet-strip"><div><span>Voice notes · 7 days</span><b>${metric(overview.voice_notes_last_7_days)}</b></div><div><span>Follow-ups created</span><b>${metric(overview.follow_ups_created_last_7_days)}</b></div><div><span>Qualified leads</span><b>${metric(overview.qualified_leads_last_7_days)}</b></div><div><span>Enabled workflows</span><b>${metric(overview.enabled_workflows)}</b></div></section></main></body></html>`;
+  </style></head><body><header class="topbar"><div class="topbar-inner"><div class="brand"><span class="mark">M</span><div>Maqtomate<small>Owner command system</small></div></div><form method="post" action="/auth/logout"><button class="signout" type="submit">Sign out</button></form></div></header><main class="wrap"><section class="hero"><span class="kicker">Restricted production operations</span><h1>Command the <em>AI Employee fleet.</em></h1><p>Live control for tenant readiness, verified automation signals, and the owner-first activation path. All credentials remain encrypted behind server-side boundaries.</p><div class="hero-meta"><span>Owner verified: ${safeName}</span><span>Official Meta Cloud API only</span><span>Mobile-safe server rendering</span></div></section><section class="metrics"><article class="metric"><span>Active tenants<i></i></span><b>${metric(overview.active_tenants)}</b><small>Payment-approved production workspaces</small></article><article class="metric"><span>Platform users<i></i></span><b>${metric(overview.active_users)}</b><small>Owner and approved customer members</small></article><article class="metric"><span>Monthly revenue<i></i></span><b>Rs ${metric(overview.monthly_recurring_revenue)}</b><small>Live tenant monthly fee total</small></article><article class="metric"><span>Errors · 7 days<i></i></span><b>${metric(overview.errors_last_7_days)}</b><small>Operational events requiring review</small></article></section><section class="command-grid">${tenantPanel}<aside class="launch-card"><span class="kicker">Activation sequence</span><h2>Owner-first launch gate</h2><p>Complete this controlled path before any public customer onboarding.</p><div class="stages"><div class="${stageClass(Boolean(testTenant))}"><div><b>Payment-exempt tenant</b><span>${testTenant ? 'Internal customer-equivalent workspace is active.' : 'Create the internal owner workspace first.'}</span></div></div><div class="${stageClass(senderFound && webhookVerified)}"><div><b>Dedicated Maqtomate sender</b><span>${senderFound && webhookVerified ? 'Phone and webhook attachment confirmed.' : 'Use the Maqtomate-owned sender only.'}</span></div></div><div class="${stageClass(tokenValid)}"><div><b>Encrypted Meta credential</b><span>${tokenValid ? 'Stored and validated in the tenant vault.' : 'Fresh token is required before messages can be sent.'}</span></div></div><div class="${stageClass(false)}"><div><b>Controlled WhatsApp proof</b><span>Dedicated sender → Worker → Gemini → private recipient test still requires recorded success.</span></div></div></div><div class="rule"><b>Non-negotiable:</b> Your personal WhatsApp remains a private recipient-only test destination. It is never registered as the business sender.</div></aside></section>${runtimePanel}${onboardingPanel}<section class="fleet-strip"><div><span>Voice notes · 7 days</span><b>${metric(overview.voice_notes_last_7_days)}</b></div><div><span>Follow-ups created</span><b>${metric(overview.follow_ups_created_last_7_days)}</b></div><div><span>Qualified leads</span><b>${metric(overview.qualified_leads_last_7_days)}</b></div><div><span>Enabled workflows</span><b>${metric(overview.enabled_workflows)}</b></div></section></main><script>function esc(v){return String(v??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]))}async function ownerPost(url,payload){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload||{})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Request failed');return d}function onboardingLabel(v){return ({managed_launch:'Managed Launch',custom_rollout:'Custom Rollout',customer_byok:'Customer Gemini BYOK',managed_ai:'Managed Gemini allowance'})[v]||v}async function loadCustomerOnboardingQueue(){const box=document.querySelector('#customer-onboarding-queue'),note=document.querySelector('#customer-onboarding-note');box.innerHTML='<div style="grid-column:1/-1"><span>Queue</span><b>Loading secure review queue…</b></div>';try{const r=await fetch('/api/owner/customer-onboarding?status=all'),d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Unable to load queue.');const rows=d.onboarding_requests||[];box.innerHTML=rows.length?rows.map(x=>{const controls=x.status==='payment_submitted'?'<button class="primary" type="button" onclick="reviewCustomerOnboarding('+Number(x.id)+',\'approve\')">Approve payment</button> <button class="secondary" type="button" onclick="reviewCustomerOnboarding('+Number(x.id)+',\'reject\')">Reject</button>':(x.status==='connection_pending'||x.status==='connection_ready')?'<button class="primary" type="button" onclick="reviewCustomerOnboarding('+Number(x.id)+',\'activate\')">Activate connected tenant</button> <button class="secondary" type="button" onclick="reviewCustomerOnboarding('+Number(x.id)+',\'reject\')">Reject</button>':'<span class="pill">'+esc(x.status)+'</span>';const readiness=x.readiness_status?(' · readiness: '+esc(x.readiness_status)):' · readiness: not submitted';return '<div style="grid-column:1/-1"><span>'+esc(x.business_name)+' · '+esc(x.email)+'</span><b>'+esc(onboardingLabel(x.requested_offer))+' · '+esc(onboardingLabel(x.requested_ai_mode))+' · '+esc(x.status)+readiness+'</b><div style="margin-top:9px">'+controls+'</div></div>'}).join(''):'<div style="grid-column:1/-1"><span>Queue</span><b>No customer onboarding requests yet.</b></div>';note.textContent='Queue shows no Meta tokens, WhatsApp credentials, passwords, or personal numbers.'}catch(e){box.innerHTML='<div style="grid-column:1/-1"><span>Queue</span><b class="attention">Unable to load review queue.</b></div>';note.textContent=e.message}}async function reviewCustomerOnboarding(id,decision){const note=prompt(decision==='approve'?'Optional owner note:':decision==='activate'?'Optional activation note:':'Reason for rejection (optional):')||'';const payload={note};if(decision==='activate'){const value=prompt('Enter the existing active customer-owned tenant ID. It must match the selected Gemini mode and must never be the Owner Test Tenant.');if(!value)return;payload.tenant_client_id=Number(value)}if(!confirm('Confirm '+decision+' for this customer onboarding request?'))return;try{await ownerPost('/api/owner/customer-onboarding/'+Number(id)+'/'+decision,payload);await loadCustomerOnboardingQueue()}catch(e){document.querySelector('#customer-onboarding-note').textContent=e.message}}loadCustomerOnboardingQueue();</script></body></html>`;
 }
 
 function dashboardHTML(user, initialOwnerOverview = null, platformRole = null) {

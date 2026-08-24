@@ -1,0 +1,8 @@
+# Deployment Verification Notes — 24 August 2026
+
+- The deployed `/login?release=customer-google-readiness` page returned HTTP 200 and displayed only the customer email/password form with links to customer account creation and password recovery. No owner controls or customer Google prompt were present on that route.
+- The first cache-busted `/signup` request returned a transient HTTP 404 JSON response during edge propagation. A subsequent direct `/signup` request and a second fresh cache-busted request both rendered the expected customer Google-first signup page, with no owner wording and no credential-collection fields. The transient response is therefore recorded as an edge-propagation anomaly rather than a persistent route failure.
+- The unauthenticated `/owner?release=customer-google-readiness` route displayed only the private owner password gate and clearly stated that its separate Google verification step is not part of customer sign-in.
+- The `/pricing?release=customer-google-readiness` route displayed both approved customer-safe offers, Managed Launch and Custom Business Rollout, with prominent pricing navigation and explicit statements that client business assets are their own and activation is supervised.
+- The unauthenticated `/api/owner/overview?release=customer-google-readiness` route returned the expected owner-password-verification error and no owner data.
+- The `/connect?release=customer-google-readiness` managed rollout form remained privacy-minimised. It requested only business-planning information and explicitly excluded Meta tokens, webhook URLs, passwords, OTPs, and a personal WhatsApp number.
