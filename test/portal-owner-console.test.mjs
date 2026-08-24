@@ -22,6 +22,15 @@ test('Owner Console is server-rendered and Owner Test Tenant provisioning is pay
   assert.match(source, /runtimeDiagnostics\(\)/);
 });
 
+test('Owner gate defers configured-secret length validation to the server-side secret comparison', () => {
+  const source = readFileSync(new URL('../portal-worker.js', import.meta.url), 'utf8');
+  assert.match(source, /name="password" type="password" autocomplete="current-password" maxlength="512" required/);
+  assert.doesNotMatch(source, /minlength="16"/);
+  assert.match(source, /password\.length < 1 \|\| password\.length > 512/);
+  assert.match(source, /safeHashEquals\(password, String\(env\.OWNER_GATE_PASSWORD\)\)/);
+  assert.match(source, /boundedRateLimit\(env, `owner-gate:attempt:\$\{ipHash\}`, 5, 900\)/);
+});
+
 test('Customer login keeps owner access and Google sign-in private', () => {
   const source = readFileSync(new URL('../portal-worker.js', import.meta.url), 'utf8');
   const customerLogin = source.slice(source.indexOf('function loginHTML(env)'), source.indexOf('const MARKETING_PATHS'));

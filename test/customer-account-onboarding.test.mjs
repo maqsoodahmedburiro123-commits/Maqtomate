@@ -74,7 +74,7 @@ test('activation readiness is a pre-tenant, opt-in-aware record that never colle
   assert.match(readinessSection, /editableStatuses/);
   assert.match(readinessSection, /opt_in_acknowledged !== true/);
   assert.match(readinessSection, /credential_collection: false/);
-  assert.match(onboardingTemplate, /Maqtomate never asks for a Meta password, Meta token, WhatsApp password, OTP, personal number, or Gemini API key/);
+  assert.match(onboardingTemplate, /Maqtomate never asks for a Meta password, token, WhatsApp password, OTP, personal number, or Gemini API key/);
   assert.doesNotMatch(onboardingTemplate, /name="meta_access_token"/);
   assert.doesNotMatch(onboardingTemplate, /name="whatsapp_token"/);
   assert.doesNotMatch(onboardingTemplate, /name="gemini_api_key"/);
@@ -82,4 +82,19 @@ test('activation readiness is a pre-tenant, opt-in-aware record that never colle
   assert.match(migration, /onboarding_request_id INTEGER NOT NULL UNIQUE/);
   assert.match(migration, /opt_in_acknowledged_at DATETIME NOT NULL/);
   assert.doesNotMatch(migration, /meta_access_token|whatsapp_token|gemini_api_key/);
+});
+
+test('customer activation and workspace surfaces use server-derived states without owner or fake-live automation claims', async () => {
+  const source = await readFile(new URL('../portal-worker.js', import.meta.url), 'utf8');
+  const onboardingTemplate = source.slice(source.indexOf('function customerOnboardingHTML('), source.indexOf('const MARKETING_PATHS'));
+  const workspace = source.slice(source.indexOf('function customerWorkspaceHTML('), source.indexOf('function dashboardHTML('));
+  assert.match(onboardingTemplate, /Your activation journey/);
+  assert.match(onboardingTemplate, /Next permitted action/);
+  assert.match(onboardingTemplate, /Official connection/);
+  assert.match(workspace, /Tenant active/);
+  assert.match(workspace, /Official go-live proof/);
+  assert.match(workspace, /Conversations · pending proof/);
+  assert.match(workspace, /Do not enter Meta tokens, app secrets, WhatsApp passwords, OTPs, personal numbers, or Gemini keys/);
+  assert.doesNotMatch(workspace, /Owner Console/);
+  assert.doesNotMatch(workspace, /Send controlled test/);
 });

@@ -95,3 +95,12 @@
 - [ ] Add tenant-scoped AI cost and outcome telemetry that distinguishes deterministic, AI-assisted, human-handoff, and failed paths without exposing prompts, secrets, cross-tenant data, or unverified cost claims.
 - [ ] Design a feature-gated WhatsApp Flows capability for structured lead qualification and service requests, with per-tenant data minimisation, opt-in/opt-out controls, official Meta approval, and end-to-end tests before release.
 - [ ] Evaluate enabled workflow and automation integrations only through tenant-scoped, server-side, idempotent adapter contracts; do not connect, authorize, or write to customer systems until the user explicitly approves a named provider and action.
+- [ ] Execute one owner-authorized controlled test through the dedicated Maqtomate test sender after confirming the Meta test recipient and service window; inspect only redacted result evidence and preserve the personal WhatsApp recipient-only boundary.
+- [x] Remove the incorrect 16-character browser minimum from the private owner-password form while preserving the configured server-side owner-password verification and rate limits.
+- [ ] Diagnose the remaining private owner-gate server-side sign-in failure without reading, replacing, exposing, or weakening the configured owner password; preserve rate limits and separate Google verification.
+- [ ] Diagnose and fix the private owner-gate submit request hang while preserving same-origin protection, rate limits, password secrecy, audit integrity, and separate Google verification.
+- [x] Assess the Aivastark onboarding/dashboard reference and prioritize only tenant-safe, evidence-based Maqtomate improvements; do not copy claims, connect external systems, or expose unverified channels.
+- [x] Build a Maqtomate customer activation command center with server-derived progress, payment/readiness/connection states, and a managed-rollout next action.
+- [x] Add a read-only customer operating-profile preview that shows approved service scope, hours, handoff and AI-mode status without sending messages, invoking Gemini, exposing credentials, or fabricating performance.
+- [x] Add tenant-safe customer workspace navigation that omits or clearly gates conversations, leads, knowledge, team, usage and integrations until each server-side capability is active and verified.
+- [x] Add regression tests for the customer workspace’s owner privacy, pre-tenant restrictions, server-derived statuses, and no-fake-live-feature guarantees.
