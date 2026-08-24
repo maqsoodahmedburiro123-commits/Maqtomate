@@ -1442,13 +1442,12 @@ function marketingSiteHTML(path) {
       title: 'Pay for a managed system, <em>not an abandoned automation.</em>',
       intro: 'Start with a managed rollout that matches your business journey. Every activation remains supervised and owner-reviewed; Maqtomate does not promise instant self-service connection.',
       label: 'Choose the managed rollout that fits your team',
-      modules: ['Managed Launch', 'VIP Managed', 'Custom business rollout', 'What every rollout includes', 'Activation boundary'],
+      modules: ['Managed Launch', 'Custom business rollout', 'What every rollout includes', 'Activation boundary'],
       details: [
         'Rs 5,000 setup and Rs 2,000 monthly for a small-business official rollout: approved knowledge, qualification rules, human handoff design, and a supervised readiness test.',
-        'Rs 8,000 setup and Rs 3,000 monthly for higher-touch configuration and managed operational support, with final scope confirmed before activation.',
         'Quoted after review for higher volume, additional languages, complex workflows, or a separately approved integration requirement.',
-        'Every plan begins with the customer journey, approved business context, lead fields, escalation policy, official connection eligibility, and a supervised test.',
-        'Payment starts a managed review. It does not promise an instant bot, self-service Meta connection, voice calling, social automation, or unverified integration.'
+        'Every plan begins with the customer journey, approved business context, lead fields, escalation policy, and a supervised official connection review. Each client uses their own official business assets; Maqtomate never uses the owner’s personal Meta or WhatsApp account for a client.',
+        'Payment starts a managed review. It does not promise an instant bot, self-service Meta connection, voice calling, social automation, owner-account sharing, or unverified integration.'
       ],
       kicker: 'Request a rollout plan before committing to activation.'
     },

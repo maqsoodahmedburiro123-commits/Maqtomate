@@ -82,17 +82,19 @@ for you" — don't imply self-serve OAuth signup exists yet, because it doesn't.
 
 ---
 
-## Final Call (v3) — owner-confirmed, replaces the v2 launch/growth numbers
+## Historical Call (v3) — superseded for new customer sales
 
-Confirmed directly by Maqsood (Aug 2026 session). No launch/growth split this time —
-one flat rate per mode. **This is what's actually wired into the worker and landing
-pages now.**
+This prior three-mode proposal is retained only to explain the legacy Worker data model.
+On 24 August 2026, the owner withdrew the public VIP/agency-Meta package. **Do not sell,
+create, or activate a new customer under Mode 3.** The live public offer is now Managed
+Launch plus Custom Business Rollout, and each customer must use their own official business
+assets through the managed connection process.
 
 | Mode | Setup Fee | Monthly | Gemini key | Meta/WhatsApp token |
 |------|-----------|---------|------------|----------------------|
 | 1 — DIY BYOK | Rs 3,500 (~$13) | Rs 1,500 (~$5) | Customer's own | Customer's own |
 | 2 — Smart Pro | Rs 5,000 (~$18) | Rs 2,000 (~$7) | **Agency's own** | Customer's own |
-| 3 — VIP Managed | Rs 8,000 (~$29) | Rs 3,000 (~$11) | Agency's own | Agency's own |
+| 3 — VIP Managed | **Retired for new sales** | **Retired for new sales** | N/A | N/A |
 
 USD figures are approximate (PKR/USD ≈ 278 at time of writing) — shown to give
 international/overseas-Pakistani prospects a sense of scale, not a fixed FX guarantee.
@@ -100,7 +102,8 @@ Update these if the rate moves significantly.
 
 Note the correction from v2: Mode 2 is **not** "split" in the vague sense — it's
 specifically *WhatsApp stays with the client, AI runs on the agency's Gemini key*.
-Mode 3 is the only one where the agency also holds the client's WhatsApp/Meta access.
+Mode 3 is retired for new sales and must not be revived without a separate owner-approved
+security, consent, legal, and commercial review.
 
 **Where this is implemented:**
 - Landing pages (`pages/*.html`) — all 5 updated to these exact numbers

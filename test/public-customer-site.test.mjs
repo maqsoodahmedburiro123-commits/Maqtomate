@@ -18,11 +18,13 @@ test('customer website copy does not advertise unofficial WhatsApp access or uni
 });
 
 test('public pricing presents managed packages with supervised activation rather than instant self-service', () => {
+  const pricingRoute = source.slice(source.indexOf("'/pricing':"), source.indexOf("'/security':"));
   assert.match(source, /Managed Launch/);
-  assert.match(source, /VIP Managed/);
   assert.match(source, /Custom business rollout/);
   assert.match(source, /does not promise instant self-service connection/);
-  assert.match(source, /It does not promise an instant bot, self-service Meta connection, voice calling, social automation, or unverified integration/);
+  assert.match(source, /Each client uses their own official business assets/);
+  assert.match(source, /It does not promise an instant bot, self-service Meta connection, voice calling, social automation, owner-account sharing, or unverified integration/);
+  assert.doesNotMatch(pricingRoute, /VIP Managed/);
 });
 
 test('public rollout intake is privacy-minimised, rate-limited, and does not request a WhatsApp number or credential', () => {

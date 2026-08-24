@@ -70,11 +70,10 @@ The current public pricing page remains consultation-led. For direct sales conve
 
 | Offer | Setup | Monthly | Suitable for | Truthful sales boundary |
 |---|---:|---:|---|---|
-| **Managed Launch** | Rs 5,000 | Rs 2,000 | Small business starting an official managed rollout. | Connection and activation remain supervised; no self-service claim. |
-| **VIP Managed** | Rs 8,000 | Rs 3,000 | Owner-managed configuration and higher-touch operational support. | Final scope, channel assets, and approval conditions are confirmed before activation. |
-| **Custom business rollout** | Quote after review | Quote after review | Higher conversation volume, complex workflow, additional language, or advanced integration requirement. | No voice, recording, social channel, or custom integration is included unless explicitly scoped and approved. |
+| **Managed Launch** | Rs 5,000 | Rs 2,000 | Small business starting an official managed rollout. | Connection and activation remain supervised; each client uses their own official business assets. |
+| **Custom business rollout** | Quote after review | Quote after review | Higher conversation volume, complex workflow, additional language, or advanced integration requirement. | No voice, recording, social channel, custom integration, or owner-account sharing is included unless separately scoped and approved. |
 
-> These are **service/managed-rollout prices**, not a promise that a prospect receives an autonomous bot immediately after paying. A client activates only after official connection eligibility, business rules, and supervised testing are complete.
+> These are **service/managed-rollout prices**, not a promise that a prospect receives an autonomous bot immediately after paying. A client activates only after official connection eligibility, business rules, and supervised testing are complete. **No customer plan uses the owner’s personal Meta or WhatsApp account.**
 
 ## 4. The demo ZIP: keep separate from production
 
@@ -155,4 +154,3 @@ After that proof is recorded, Maqtomate becomes far stronger to sell as a manage
 ## 9. Today’s final public product statement
 
 > **Maqtomate is the managed WhatsApp AI Employee for businesses that want customer enquiries handled through an official, supervised, tenant-isolated system. We prepare the knowledge, qualification, and human handoff workflow first—then activate through a managed official rollout.**
-
