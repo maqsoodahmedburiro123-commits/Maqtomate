@@ -81,3 +81,5 @@
 - [x] Review the pasted static Maqtomate website source and document which design patterns can be adapted safely without replacing the live secure portal or publishing unverified claims.
 - [x] Assess the uploaded Maqtomate demo ZIP and packaging guidance; prepare a one-brand, sellable today plan that keeps demo proof separate from unproven production claims.
 - [x] Add a truthful managed-offer module to the live pricing page: Managed Launch, VIP Managed, and Custom Rollout, with supervised-activation boundaries and no self-service claim.
+- [ ] Diagnose the reported non-delivery of the protected owner controlled test using redacted audit evidence and official Meta test-recipient prerequisites; do not retry without owner approval.
+- [x] Verify and document the exact Cloudflare Worker bindings and secret names without exposing values; do not replace any runtime secret unless evidence identifies a specific broken configuration.
