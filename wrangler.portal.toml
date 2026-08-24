@@ -6,7 +6,6 @@ keep_vars = true
 
 [[d1_databases]]
 binding = "MAQVORA_DB"
-database_name = "maqtomate-db"
 database_id = "e05012b3-3c59-407f-b073-41183cf5a07c"
 
 [[kv_namespaces]]
@@ -16,6 +15,7 @@ id = "fbf76e29e82e46ef9b19a828ae5b369e"
 [[services]]
 binding = "OWNER_TEST_BRIDGE"
 service = "maqtomate-worker"
+environment = "production"
 entrypoint = "OwnerTestCredentialBridge"
 
 [vars]

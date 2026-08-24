@@ -84,3 +84,4 @@
 - [ ] Diagnose the reported non-delivery of the protected owner controlled test using redacted audit evidence and official Meta test-recipient prerequisites; do not retry without owner approval.
 - [x] Verify and document the exact Cloudflare Worker bindings and secret names without exposing values; do not replace any runtime secret unless evidence identifies a specific broken configuration.
 - [x] Remove VIP Managed from public Maqtomate pricing and sales materials because no customer offer may imply use of the owner’s Meta or WhatsApp credentials; retain Managed Launch and Custom Business Rollout.
+- [x] Separate owner access from the customer-facing login page and add an owner-only password gate before Google authentication, preserving customer magic-link access and existing tenant isolation.

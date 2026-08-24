@@ -48,8 +48,13 @@ export default {
       if (request.method === 'GET' && path === '/robots.txt') return new Response('User-agent: *\nAllow: /\nDisallow: /owner\nDisallow: /dashboard\nDisallow: /api/\n', { status: 200, headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }) });
       if (request.method === 'GET' && path === '/sitemap.xml') return new Response(marketingSitemap(request, env), { status: 200, headers: new Headers({ 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' }) });
       if (request.method === 'POST' && path === '/api/public/rollout-requests') return await createPublicRolloutRequest(request, env, headers, requestId);
+      if (path.startsWith('/api/owner/') && !(await hasOwnerGate(request, env))) throw new AccessError('Owner password verification required.', 401);
+      if (path.startsWith('/owner/') && path !== '/owner/gate' && !(await hasOwnerGate(request, env))) return redirectToOwnerGate(headers);
+      if (request.method === 'GET' && path === '/owner/gate') return htmlResponse(ownerGateHTML(), 200, headers);
+      if (request.method === 'POST' && path === '/owner/gate') return await completeOwnerGate(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/dashboard') {
         const access = await requireSession(request, env);
+        if (access.platformRole && !(await hasOwnerGate(request, env))) return redirectToOwnerGate(headers);
         const overview = access.platformRole ? await ownerOverviewData(env) : null;
         return htmlResponse(dashboardHTML(access.user, overview, access.platformRole), 200, headers);
       }
@@ -59,7 +64,7 @@ export default {
       if (request.method === 'POST' && path === '/owner/test-tenant/validate-saved-credential') return await validateOwnerTestCredential(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/owner/test-tenant/renew-meta-token') return await renewOwnerTestCredential(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/owner/test-tenant/send-controlled-test') return await sendOwnerControlledTest(request, env, headers, requestId);
-      if (request.method === 'GET' && path === '/auth/google') return await beginGoogleLogin(request, env, headers);
+      if (request.method === 'GET' && path === '/auth/google') return await beginOwnerGoogleLogin(request, env, headers);
       if (request.method === 'GET' && path === '/auth/google/callback') return await completeGoogleLogin(request, env, headers, requestId);
       if (request.method === 'GET' && path === '/auth/verify') return await verifyMagicLink(request, env, headers, requestId);
       if (request.method === 'POST' && path === '/auth/request-link') return await requestMagicLink(request, env, headers, requestId);
@@ -154,6 +159,14 @@ function sessionCookie(token) {
 
 function clearSessionCookie() {
   return 'mt_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
+}
+
+function ownerGateCookie(token) {
+  return `mt_owner_gate=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`;
+}
+
+function clearOwnerGateCookie() {
+  return 'mt_owner_gate=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
 }
 
 function oauthTransientCookie(name, value, seconds = 600) {
@@ -380,6 +393,53 @@ async function beginGoogleLogin(request, env, headers) {
   return new Response(null, { status: 302, headers: redirectHeaders });
 }
 
+async function hasOwnerGate(request, env) {
+  const rawToken = cookieValue(request, 'mt_owner_gate');
+  if (!rawToken || rawToken.length < 32 || !env.MAQVORA_KV) return false;
+  try {
+    return (await env.MAQVORA_KV.get(`owner-gate:${await sha256(rawToken)}`)) === 'verified';
+  } catch (_) {
+    return false;
+  }
+}
+
+function redirectToOwnerGate(headers) {
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('Location', '/owner/gate');
+  return new Response(null, { status: 303, headers: responseHeaders });
+}
+
+function ownerGateHTML(message = '') {
+  const notice = message ? `<p class="notice" role="status">${escapeHtml(message)}</p>` : '';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Protected access</title><style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{width:min(440px,calc(100vw - 32px));padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}label{display:grid;gap:8px;font-size:14px;font-weight:700}input{box-sizing:border-box;width:100%;padding:14px;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button{box-sizing:border-box;display:block;width:100%;margin-top:18px;padding:14px;border:0;border-radius:10px;background:#17a673;color:#fff;font-weight:700;font-size:16px;cursor:pointer}.notice{min-height:22px;color:#fcd34d;font-size:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">PROTECTED ACCESS</div><h1>Enter owner password</h1><p>This private gateway is required before the separate Google owner verification step. It is not part of customer sign-in.</p><form method="post" action="/owner/gate"><label>Owner password<input name="password" type="password" autocomplete="current-password" minlength="16" maxlength="512" required autofocus></label><button type="submit">Continue securely</button>${notice}</form></main></body></html>`;
+}
+
+async function completeOwnerGate(request, env, headers, requestId) {
+  assertSameOrigin(request);
+  if (!env.OWNER_GATE_PASSWORD) throw new AccessError('Owner password protection is not configured.', 503);
+  const ipHash = await sha256(request.headers.get('CF-Connecting-IP') || 'unknown');
+  const allowed = await boundedRateLimit(env, `owner-gate:attempt:${ipHash}`, 5, 900);
+  if (!allowed) return htmlResponse(ownerGateHTML('Too many attempts. Please wait 15 minutes before trying again.'), 429, headers);
+  const form = await request.formData().catch(() => null);
+  const password = String(form?.get('password') || '');
+  if (password.length < 16 || password.length > 512 || !(await safeHashEquals(password, String(env.OWNER_GATE_PASSWORD)))) {
+    await auditEvent(env, { action: 'owner.password_gate_denied', requestId, request, details: { reason: 'invalid_password' } });
+    return htmlResponse(ownerGateHTML('Password was not accepted. Please try again.'), 401, headers);
+  }
+  const gateToken = randomToken(48);
+  await env.MAQVORA_KV.put(`owner-gate:${await sha256(gateToken)}`, 'verified', { expirationTtl: SESSION_TTL_SECONDS });
+  await auditEvent(env, { action: 'owner.password_gate_verified', requestId, request });
+  const responseHeaders = new Headers(headers);
+  responseHeaders.set('Location', '/owner');
+  responseHeaders.append('Set-Cookie', ownerGateCookie(gateToken));
+  return new Response(null, { status: 303, headers: responseHeaders });
+}
+
+async function beginOwnerGoogleLogin(request, env, headers) {
+  if (!(await hasOwnerGate(request, env))) return redirectToOwnerGate(headers);
+  return await beginGoogleLogin(request, env, headers);
+}
+
 async function completeGoogleLogin(request, env, headers, requestId) {
   if (!env.GOOGLE_OAUTH_CLIENT_ID || !env.GOOGLE_OAUTH_CLIENT_SECRET) {
     throw new AccessError('Google sign-in is not configured yet.', 503);
@@ -543,6 +603,7 @@ async function logout(request, env, headers, requestId) {
   }
   const responseHeaders = new Headers(headers);
   responseHeaders.set('Set-Cookie', clearSessionCookie());
+  responseHeaders.append('Set-Cookie', clearOwnerGateCookie());
   return json({ ok: true }, 200, responseHeaders);
 }
 
@@ -848,10 +909,11 @@ async function ownerConsole(request, env, headers) {
 }
 
 async function ownerConsoleOrLogin(request, env, headers) {
+  if (!(await hasOwnerGate(request, env))) return htmlResponse(ownerGateHTML(), 200, headers);
   try {
     return await ownerConsole(request, env, headers);
   } catch (error) {
-    if (error instanceof AccessError && error.status === 401) return await beginGoogleLogin(request, env, headers);
+    if (error instanceof AccessError && error.status === 401) return await beginOwnerGoogleLogin(request, env, headers);
     throw error;
   }
 }
@@ -1366,8 +1428,7 @@ function loginHTML(env) {
   const turnstileScript = siteKey ? '<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>' : '';
   const turnstileWidget = siteKey ? '<div id="turnstile" style="margin:12px 0"></div>' : '';
   const useTurnstile = siteKey ? 'true' : 'false';
-  const googleButton = env.GOOGLE_OAUTH_CLIENT_ID ? '<a class="google" href="/auth/google">Continue with Google — Owner access</a><div class="divider">or use a one-time email link</div>' : '';
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button,.google{box-sizing:border-box;display:block;width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none}.google{background:#fff;color:#1f2937;border:1px solid #cbd5e1}.divider{margin:18px 0 4px;color:#8ca79f;text-align:center;font-size:13px}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Owner access uses Google Sign-In once configured. Customer access can use an approved one-time email link. No password is stored by Maqtomate.</p>${googleButton}<form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maqtomate Portal</title>${turnstileScript}<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#071a16;color:#eef8f4;display:grid;min-height:100vh;place-items:center}.card{max-width:440px;padding:34px;border:1px solid #24594b;border-radius:20px;background:#0d2922;box-shadow:0 24px 70px #0007}h1{margin:0 0 8px}p{color:#b7d0c8;line-height:1.55}input{box-sizing:border-box;width:100%;padding:14px;margin:14px 0;border:1px solid #3e7667;border-radius:10px;background:#06130f;color:#fff;font-size:16px}button{box-sizing:border-box;display:block;width:100%;padding:14px;border:0;border-radius:10px;background:#17a673;color:white;font-weight:700;font-size:16px;cursor:pointer;text-align:center;text-decoration:none}button:disabled{opacity:.6}#note{min-height:24px;font-size:14px;margin-top:14px}</style></head><body><main class="card"><div style="font-size:13px;color:#62e8b8;font-weight:700;letter-spacing:.08em">MAQTOMATE PORTAL</div><h1>Secure dashboard access</h1><p>Use your approved business email to receive a one-time sign-in link. Your dashboard opens only when your account has been approved for Maqtomate access.</p><form id="form"><input id="email" type="email" autocomplete="email" required placeholder="you@business.com">${turnstileWidget}<button id="submit">Send secure sign-in link</button><div id="note" aria-live="polite"></div></form></main><script>let turnstileToken='';const f=document.querySelector('#form'),n=document.querySelector('#note'),b=document.querySelector('#submit');function initTurnstile(){if(${useTurnstile}&&window.turnstile){window.turnstile.render('#turnstile',{sitekey:'${siteKey}',callback:t=>{turnstileToken=t},'expired-callback':()=>{turnstileToken=''}})}else if(${useTurnstile}){setTimeout(initTurnstile,100)}}initTurnstile();f.addEventListener('submit',async e=>{e.preventDefault();b.disabled=true;n.textContent='Requesting secure link…';try{const r=await fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:document.querySelector('#email').value,turnstile_token:turnstileToken})});const d=await r.json();n.textContent=d.message||'If eligible, a link is on its way.'}catch(e){n.textContent='Unable to request a link. Please try again.'}finally{b.disabled=false}});</script></body></html>`;
 }
 
 const MARKETING_PATHS = new Set([

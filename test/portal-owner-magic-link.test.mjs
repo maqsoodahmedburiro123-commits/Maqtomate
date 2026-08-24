@@ -101,13 +101,20 @@ test('magic-link provider failure is non-enumerating, expires the fresh token, a
 });
 
 test('Google owner-login initiation requires both OAuth secrets and uses state plus nonce cookies when configured', async () => {
-  const unavailable = await portal.fetch(new Request('https://portal.example/auth/google'), {}, {});
+  const blocked = await portal.fetch(new Request('https://portal.example/auth/google'), {}, {});
+  assert.equal(blocked.status, 303);
+  assert.equal(blocked.headers.get('Location'), '/owner/gate');
+
+  const ownerGateHeaders = { Cookie: `mt_owner_gate=${'g'.repeat(48)}` };
+  const gateEnv = { MAQVORA_KV: { get: async () => 'verified' } };
+  const unavailable = await portal.fetch(new Request('https://portal.example/auth/google', { headers: ownerGateHeaders }), gateEnv, {});
   assert.equal(unavailable.status, 503);
 
-  const configured = await portal.fetch(new Request('https://portal.example/auth/google'), {
+  const configured = await portal.fetch(new Request('https://portal.example/auth/google', { headers: ownerGateHeaders }), {
     GOOGLE_OAUTH_CLIENT_ID: 'client-id.apps.googleusercontent.com',
     GOOGLE_OAUTH_CLIENT_SECRET: 'server-only-secret',
-    PORTAL_URL: 'https://portal.example'
+    PORTAL_URL: 'https://portal.example',
+    MAQVORA_KV: { get: async () => 'verified' }
   }, {});
   assert.equal(configured.status, 302);
   const location = configured.headers.get('Location');

@@ -6,7 +6,10 @@ test('Owner Console is server-rendered and Owner Test Tenant provisioning is pay
   const source = readFileSync(new URL('../portal-worker.js', import.meta.url), 'utf8');
   assert.match(source, /path === '\/owner'/);
   assert.match(source, /ownerConsoleOrLogin\(request, env, headers\)/);
-  assert.match(source, /error\.status === 401\) return await beginGoogleLogin/);
+  assert.match(source, /OWNER_GATE_PASSWORD/);
+  assert.match(source, /function ownerGateHTML/);
+  assert.match(source, /owner\.password_gate_verified/);
+  assert.match(source, /error\.status === 401\) return await beginOwnerGoogleLogin/);
   assert.match(source, /path === '\/owner\/test-tenant\/provision'/);
   assert.match(source, /function ownerConsoleHTML\(user, overview, testTenant, runtimeDiagnostics/);
   assert.match(source, /Maqtomate Owner Test Tenant/);
@@ -17,4 +20,13 @@ test('Owner Console is server-rendered and Owner Test Tenant provisioning is pay
   assert.match(source, /Runtime credential diagnostics/);
   assert.match(source, /ownerRuntimeCredentialDiagnostics/);
   assert.match(source, /runtimeDiagnostics\(\)/);
+});
+
+test('Customer login keeps owner access and Google sign-in private', () => {
+  const source = readFileSync(new URL('../portal-worker.js', import.meta.url), 'utf8');
+  const customerLogin = source.slice(source.indexOf('function loginHTML(env)'), source.indexOf('const MARKETING_PATHS'));
+  assert.match(customerLogin, /approved business email/);
+  assert.doesNotMatch(customerLogin, /Owner access uses Google Sign-In/);
+  assert.doesNotMatch(customerLogin, /Continue with Google — Owner access/);
+  assert.doesNotMatch(customerLogin, /href="\/auth\/google"/);
 });
